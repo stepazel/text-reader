@@ -7,7 +7,9 @@
         x:CompileBindings="False"
         Title="TextReader">
 
-    <ScrollViewer HorizontalScrollBarVisibility="Auto">
+    <ScrollViewer x:Name="Scroller"
+                  HorizontalScrollBarVisibility="Auto"
+                  ScrollChanged="OnScrollChanged">
         <ItemsControl ItemsSource="{Binding Lines}">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
