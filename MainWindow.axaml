@@ -7,19 +7,37 @@
         x:CompileBindings="False"
         Title="TextReader">
 
-    <ScrollViewer x:Name="Scroller"
-                  HorizontalScrollBarVisibility="Auto"
-                  ScrollChanged="OnScrollChanged">
-        <ItemsControl ItemsSource="{Binding Lines}">
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <TextBlock Text="{Binding}"
-                               Padding="8 4"
-                               FontFamily="Courier New"
-                               FontSize="13"/>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
-    </ScrollViewer>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Inner scroll handles pixel-smooth scrolling within the loaded window.
+             Vertical scrollbar hidden — the virtual ScrollBar on the right replaces it. -->
+        <ScrollViewer x:Name="Scroller"
+                      Grid.Column="0"
+                      HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Hidden"
+                      ScrollChanged="OnScrollChanged">
+            <ItemsControl ItemsSource="{Binding Lines}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}"
+                                   Padding="8 4"
+                                   FontFamily="Courier New"
+                                   FontSize="13"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Virtual scrollbar: Maximum is set in code to total line count -->
+        <ScrollBar x:Name="VirtualScroll"
+                   Grid.Column="1"
+                   Orientation="Vertical"
+                   Minimum="0"
+                   ValueChanged="OnVirtualScrollChanged"/>
+    </Grid>
 
 </Window>

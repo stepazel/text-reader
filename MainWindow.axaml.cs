@@ -3,8 +3,13 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
+using Microsoft.Win32.SafeHandles;
 
 namespace TextReader;
 
@@ -14,9 +19,12 @@ public partial class MainWindow : Window
     private const int SlideAmount = 50;
 
     private long[] _offsets = [];
-    private string _path = "";
-    private long _firstLoadedLine = 0;
+    private long _fileLength;
+    private SafeFileHandle? _fileHandle;
+    private long _firstLoadedLine;
     private bool _adjustingScroll;
+    private bool _suppressVirtualScroll;
+    private CancellationTokenSource? _debounceToken;
 
     public ObservableCollection<string> Lines { get; } = new();
 
@@ -24,19 +32,58 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        _path = Path.Combine("Test", "big.txt");
-        _offsets = BuildLineOffsets(_path);
+        var path = Path.Combine("Test", "big.txt");
+        _offsets = BuildLineOffsets(path);
 
-        var initialCount = (int)Math.Min(WindowSize, _offsets.Length);
-        for (var i = 0; i < initialCount; i++)
-            Lines.Add(ReadLine(_path, _offsets, i));
+        _fileHandle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+            FileOptions.RandomAccess);
+        _fileLength = RandomAccess.GetLength(_fileHandle);
+
+        VirtualScroll.Maximum = Math.Max(0, _offsets.Length - 1);
+        VirtualScroll.LargeChange = WindowSize / 2;
+        VirtualScroll.SmallChange = 3;
+
+        LoadWindow(0);
+
+        Closed += (_, _) => _fileHandle.Dispose();
 
         DataContext = this;
     }
 
+    // Replaces the entire loaded window starting at firstLine.
+    // Used when jumping to a distant position (virtual scrollbar drag).
+    private void LoadWindow(long firstLine)
+    {
+        firstLine = Math.Clamp(firstLine, 0, Math.Max(0, _offsets.Length - WindowSize));
+        _firstLoadedLine = firstLine;
+
+        Lines.Clear();
+        var count = (int)Math.Min(WindowSize, _offsets.Length - firstLine);
+        for (var i = 0; i < count; i++)
+            Lines.Add(ReadLine((int)(firstLine + i)));
+    }
+
+    private async void OnVirtualScrollChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_suppressVirtualScroll) return;
+
+        _debounceToken?.Cancel();
+        _debounceToken = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(80, _debounceToken.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        LoadWindow((long)e.NewValue);
+        Scroller.Offset = Vector.Zero;
+    }
+
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
-        // ExtentDelta != 0 means our own content change fired this event, not user scrolling
         if (e.ExtentDelta.Y != 0 || _adjustingScroll)
             return;
 
@@ -50,6 +97,21 @@ public partial class MainWindow : Window
             SlideDown();
         else if (offset < viewport / 2)
             SlideUp(sv);
+
+        // Keep the virtual scrollbar in sync without triggering a reload
+        SyncVirtualScroll(sv);
+    }
+
+    private void SyncVirtualScroll(ScrollViewer sv)
+    {
+        if (sv.Extent.Height <= 0) return;
+
+        var lineHeight = sv.Extent.Height / Lines.Count;
+        var firstVisibleInWindow = (long)(sv.Offset.Y / lineHeight);
+
+        _suppressVirtualScroll = true;
+        VirtualScroll.Value = _firstLoadedLine + firstVisibleInWindow;
+        _suppressVirtualScroll = false;
     }
 
     private void SlideDown()
@@ -59,9 +121,8 @@ public partial class MainWindow : Window
 
         var toAdd = (int)Math.Min(SlideAmount, _offsets.Length - nextLine);
         for (var i = 0; i < toAdd; i++)
-            Lines.Add(ReadLine(_path, _offsets, (int)(nextLine + i)));
+            Lines.Add(ReadLine((int)(nextLine + i)));
 
-        // Trim from top to keep window bounded
         while (Lines.Count > WindowSize)
         {
             Lines.RemoveAt(0);
@@ -77,15 +138,13 @@ public partial class MainWindow : Window
         var oldExtent = sv.Extent.Height;
 
         for (var i = toAdd - 1; i >= 0; i--)
-            Lines.Insert(0, ReadLine(_path, _offsets, (int)(_firstLoadedLine - toAdd + i)));
+            Lines.Insert(0, ReadLine((int)(_firstLoadedLine - toAdd + i)));
 
         _firstLoadedLine -= toAdd;
 
-        // Trim from bottom to keep window bounded
         while (Lines.Count > WindowSize)
             Lines.RemoveAt(Lines.Count - 1);
 
-        // Shift scroll offset to compensate for the height added above the viewport
         _adjustingScroll = true;
         Dispatcher.UIThread.Post(() =>
         {
@@ -93,12 +152,29 @@ public partial class MainWindow : Window
             _adjustingScroll = false;
         }, DispatcherPriority.Loaded);
     }
+    
+    
+
+    private string ReadLine(int lineIndex)
+    {
+        if (lineIndex >= _offsets.Length || _fileHandle is null)
+            return string.Empty;
+
+        var start = _offsets[lineIndex];
+        var end = lineIndex + 1 < _offsets.Length ? _offsets[lineIndex + 1] : _fileLength;
+
+        var bytes = new byte[end - start];
+        RandomAccess.Read(_fileHandle, bytes, start);
+
+        return Encoding.UTF8.GetString(bytes).TrimEnd('\r', '\n');
+    }
 
     private static long[] BuildLineOffsets(string path)
     {
         var offsets = new List<long> { 0L };
 
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 65536);
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize: 65536);
         var buffer = new byte[65536];
         long position = 0;
         int bytesRead;
@@ -114,22 +190,5 @@ public partial class MainWindow : Window
         }
 
         return offsets.ToArray();
-    }
-
-    private static string ReadLine(string path, long[] offsets, int lineIndex)
-    {
-        if (lineIndex >= offsets.Length)
-            return string.Empty;
-
-        var start = offsets[lineIndex];
-        var end = lineIndex + 1 < offsets.Length
-            ? offsets[lineIndex + 1]
-            : new FileInfo(path).Length;
-
-        var bytes = new byte[end - start];
-        using var handle = File.OpenHandle(path);
-        RandomAccess.Read(handle, bytes, start);
-
-        return Encoding.UTF8.GetString(bytes).TrimEnd('\r', '\n');
     }
 }
