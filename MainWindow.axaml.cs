@@ -8,6 +8,7 @@ using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Microsoft.Win32.SafeHandles;
 
@@ -39,18 +40,74 @@ public partial class MainWindow : Window
             FileOptions.RandomAccess);
         _fileLength = RandomAccess.GetLength(_fileHandle);
 
-        // VirtualScroll.Maximum = Math.Max(0, _offsets.Length - 1);
-        // VirtualScroll.LargeChange = WindowSize / 2;
-        // VirtualScroll.SmallChange = 3;
-
         LoadWindow(0);
-        Opened += (_, _) => Scroller.Focus();
+        Opened += (_, _) =>
+        {
+            Scroller.Focus(); // Zajistí handlování klávesových eventů
+            var lineHeight = Scroller.Extent.Height / Lines.Count;
+            VirtualScroll.Maximum = _offsets.Length - 1;
+            VirtualScroll.ViewportSize = (int)(Scroller.Viewport.Height / lineHeight);
+        };
         Closed += (_, _) => _fileHandle.Dispose();
         DataContext = this;
     }
 
-    // Replaces the entire loaded window starting at firstLine.
-    // Used when jumping to a distant position (virtual scrollbar drag).
+    private void NavigateTo(long docLine)
+    {
+        if (Lines.Count == 0 || Scroller.Extent.Height == 0) return;
+
+        var lineHeight = Scroller.Extent.Height / Lines.Count;
+        docLine = Math.Clamp(docLine, 0, _offsets.Length - 1);
+        LoadWindow(Math.Max(0, docLine - WindowSize / 2));
+
+        var lineInBuffer = docLine - _firstLoadedLine;
+        _adjustingScroll = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            Scroller.Offset = new Vector(0, lineInBuffer * lineHeight);
+            _adjustingScroll = false;
+        }, DispatcherPriority.Loaded);
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (Lines.Count == 0 || Scroller.Extent.Height == 0) { base.OnKeyDown(e); return; }
+
+        var lineHeight = Scroller.Extent.Height / Lines.Count;
+
+        // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
+        switch (e.Key)
+        {
+            case Key.Down:
+                Scroller.Offset = Scroller.Offset.WithY(Scroller.Offset.Y + lineHeight);
+                e.Handled = true;
+                break;
+            case Key.Up:
+                Scroller.Offset = Scroller.Offset.WithY(Scroller.Offset.Y - lineHeight);
+                e.Handled = true;
+                break;
+            case Key.PageDown:
+                Scroller.Offset = Scroller.Offset.WithY(Scroller.Offset.Y + Scroller.Viewport.Height);
+                e.Handled = true;
+                break;
+            case Key.PageUp:
+                Scroller.Offset = Scroller.Offset.WithY(Scroller.Offset.Y - Scroller.Viewport.Height);
+                e.Handled = true;
+                break;
+            case Key.Home:
+                NavigateTo(0);
+                e.Handled = true;
+                break;
+            case Key.End:
+                NavigateTo(_offsets.Length - 1);
+                e.Handled = true;
+                break;
+            default:
+                base.OnKeyDown(e);
+                break;
+        }
+    }
+
     private void LoadWindow(long firstLine)
     {
         firstLine = Math.Clamp(firstLine, 0, Math.Max(0, _offsets.Length - WindowSize));
@@ -81,12 +138,9 @@ public partial class MainWindow : Window
         var lastVisible = firstVisible + (int)(sv.Viewport.Height / lineHeight);
         var lastLoaded = _firstLoadedLine + Lines.Count - 1;
 
-        Console.WriteLine(
-            $"first visible: {firstVisible}; last visible: {lastVisible}; firstLoaded: {_firstLoadedLine}; last loaded: {lastLoaded}");
         if (lastLoaded - lastVisible <= ScrollBuffer) // Slide down
         {
             if (lastLoaded >= _offsets.Length - 1) return;
-            Console.WriteLine("Slide down");
 
             const int changeSize = 100;
             var linesToAdd = new string[changeSize];
@@ -113,7 +167,7 @@ public partial class MainWindow : Window
         
 
         var bufferRemainingTop = firstVisible - _firstLoadedLine; // kolik řádků je nad prvním viditelným 
-        if (bufferRemainingTop <= ScrollBuffer && _firstLoadedLine > 0)
+        if (bufferRemainingTop <= ScrollBuffer && _firstLoadedLine > 0) // Slide up
         {
             const int changeSize = 100;
 
@@ -136,8 +190,9 @@ public partial class MainWindow : Window
         }
 
 
-        // Keep the virtual scrollbar in sync without triggering a reload
-        // SyncVirtualScroll(sv);
+        _suppressVirtualScroll = true;
+        VirtualScroll.Value = firstVisible;
+        _suppressVirtualScroll = false;
     }
 
     private async void OnVirtualScrollChanged(object? sender, RangeBaseValueChangedEventArgs e)
@@ -155,22 +210,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        LoadWindow((long)e.NewValue);
-        Scroller.Offset = Vector.Zero;
+        NavigateTo((long)e.NewValue);
     }
-
-
-    // private void SyncVirtualScroll(ScrollViewer sv)
-    // {
-    //     if (sv.Extent.Height <= 0) return;
-    //
-    //     var lineHeight = sv.Extent.Height / Lines.Count;
-    //     var firstVisibleInWindow = (long)(sv.Offset.Y / lineHeight);
-    //
-    //     _suppressVirtualScroll = true;
-    //     VirtualScroll.Value = _firstLoadedLine + firstVisibleInWindow;
-    //     _suppressVirtualScroll = false;
-    // }
 
 
     private string ReadLine(int lineIndex)

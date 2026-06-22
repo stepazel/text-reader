@@ -14,7 +14,7 @@
         <ScrollViewer x:Name="Scroller"
                       Grid.Column="0"
                       HorizontalScrollBarVisibility="Auto"
-                      VerticalScrollBarVisibility="Visible"
+                      VerticalScrollBarVisibility="Hidden"
                       Focusable="True"
                       ScrollChanged="OnScrollChanged">
             <ItemsControl ItemsSource="{Binding Lines}">
@@ -29,12 +29,11 @@
             </ItemsControl>
         </ScrollViewer>
 
-        <!-- ~1~ Virtual scrollbar: Maximum is set in code to total line count @1@ -->
-        <!-- <ScrollBar x:Name="VirtualScroll" -->
-        <!--            Grid.Column="1" -->
-        <!--            Orientation="Vertical" -->
-        <!--            Minimum="0" -->
-        <!--            ValueChanged="OnVirtualScrollChanged"/> -->
+        <ScrollBar x:Name="VirtualScroll"
+                   Grid.Column="1"
+                   Orientation="Vertical"
+                   Minimum="0"
+                   ValueChanged="OnVirtualScrollChanged"/>
     </Grid>
 
 </Window>
