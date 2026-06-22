@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,8 +15,7 @@ namespace TextReader;
 
 public partial class MainWindow : Window
 {
-    private const int WindowSize = 300;
-    private const int SlideAmount = 50;
+    private const int WindowSize = 500;
     private const int ScrollBuffer = 100;
 
     private readonly long[] _offsets;
@@ -41,7 +38,7 @@ public partial class MainWindow : Window
         _fileHandle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read,
             FileOptions.RandomAccess);
         _fileLength = RandomAccess.GetLength(_fileHandle);
-        
+
 
         // VirtualScroll.Maximum = Math.Max(0, _offsets.Length - 1);
         // VirtualScroll.LargeChange = WindowSize / 2;
@@ -64,9 +61,11 @@ public partial class MainWindow : Window
         Lines.Clear();
         var count = (int)Math.Min(WindowSize, _offsets.Length - firstLine);
         for (var i = 0; i < count; i++)
+        {
             Lines.Add(ReadLine((int)(firstLine + i)));
+        }
     }
-    
+
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
         if (e.ExtentDelta.Y != 0 || _adjustingScroll)
@@ -78,13 +77,14 @@ public partial class MainWindow : Window
         {
             return;
         }
-        
+
         var lineHeight = sv.Extent.Height / Lines.Count;
         var firstVisible = _firstLoadedLine + (int)(sv.Offset.Y / lineHeight);
         var lastVisible = firstVisible + (int)(sv.Viewport.Height / lineHeight);
         var lastLoaded = _firstLoadedLine + Lines.Count - 1;
-        
-        Console.WriteLine($"first visible: {firstVisible}; last visible: {lastVisible}; firstLoaded: {_firstLoadedLine}; last loaded: {lastLoaded}");
+
+        Console.WriteLine(
+            $"first visible: {firstVisible}; last visible: {lastVisible}; firstLoaded: {_firstLoadedLine}; last loaded: {lastLoaded}");
         if (lastLoaded - lastVisible <= ScrollBuffer) // Slide down
         {
             if (lastLoaded >= _offsets.Length - 1) return;
@@ -98,42 +98,44 @@ public partial class MainWindow : Window
             }
 
             _adjustingScroll = true;
-            Lines.RemoveRange(0, changeSize);
-            Lines.InsertRange(200, linesToAdd);
+            Lines.AddRange(linesToAdd);
             _firstLoadedLine += changeSize;
-            
-            Dispatcher.UIThread.Post(() =>                                                                                                                                                                                                                
-            {                                                                                                                                                                                                                                             
-                sv.Offset = sv.Offset.WithY(sv.Offset.Y - changeSize * lineHeight);                                                                                                                                                                       
-                _adjustingScroll = false;                                                                                                                                                                                                                 
-            }, DispatcherPriority.Loaded); 
-        }
+            if (Lines.Count > WindowSize)
+            {
+                Lines.RemoveRange(0, changeSize);
+            }
 
-        // if (_firstLoadedLine - firstVisible <= ScrollBuffer) // Slide up
-        // {
-        //     if (_firstLoadedLine == 0) return;
-        //     Console.WriteLine("Slide up");
-        //     
-        //     const int changeSize = 100;
-        //     var linesToAdd = new string[changeSize];
-        //     for (var i = 0; i < changeSize; i++)
-        //     {
-        //         linesToAdd[i] = ReadLine((int)(_firstLoadedLine - 100 + i));
-        //     }
-        //
-        //     _adjustingScroll = true;
-        //     Lines.InsertRange(0, linesToAdd);
-        //     Lines.RemoveRange(300, changeSize);
-        //     _firstLoadedLine -= changeSize;
-        //     
-        //     Console.WriteLine(Lines.Count);
-        //     
-        //     Dispatcher.UIThread.Post(() =>                                                                                                                                                                                                                
-        //     {                                                                                                                                                                                                                                             
-        //         sv.Offset = sv.Offset.WithY(sv.Offset.Y - changeSize * lineHeight);                                                                                                                                                                       
-        //         _adjustingScroll = false;                                                                                                                                                                                                                 
-        //     }, DispatcherPriority.Loaded); 
-        // }
+            Dispatcher.UIThread.Post(() =>
+            {
+                sv.Offset = sv.Offset.WithY(sv.Offset.Y - changeSize * lineHeight);
+                _adjustingScroll = false;
+            }, DispatcherPriority.Loaded);
+            return;
+        }
+        
+
+        var bufferRemainingTop = firstVisible - _firstLoadedLine; // kolik řádků je nad prvním viditelným 
+        if (bufferRemainingTop <= ScrollBuffer && _firstLoadedLine > 0)
+        {
+            const int changeSize = 100;
+
+            var linesToAdd = new string[changeSize];
+            for (var i = 0; i < changeSize; i++)
+            {
+                linesToAdd[i] = ReadLine((int)(_firstLoadedLine - changeSize + i));
+            }
+
+            _adjustingScroll = true;
+            Lines.InsertRange(0, linesToAdd);
+            Lines.RemoveRange(Lines.Count - changeSize, changeSize);
+            _firstLoadedLine -= changeSize;
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                sv.Offset = sv.Offset.WithY(sv.Offset.Y + changeSize * lineHeight);
+                _adjustingScroll = false;
+            }, DispatcherPriority.Loaded);
+        }
 
 
         // Keep the virtual scrollbar in sync without triggering a reload
@@ -172,46 +174,6 @@ public partial class MainWindow : Window
     //     _suppressVirtualScroll = false;
     // }
 
-    private void SlideDown()
-    {
-        var nextLine = _firstLoadedLine + Lines.Count;
-        if (nextLine >= _offsets.Length) return;
-
-        var toAdd = (int)Math.Min(SlideAmount, _offsets.Length - nextLine);
-        for (var i = 0; i < toAdd; i++)
-            Lines.Add(ReadLine((int)(nextLine + i)));
-
-        while (Lines.Count > WindowSize)
-        {
-            Lines.RemoveAt(0);
-            _firstLoadedLine++;
-        }
-    }
-
-    private void SlideUp(ScrollViewer sv)
-    {
-        if (_firstLoadedLine == 0) return;
-
-        var toAdd = (int)Math.Min(SlideAmount, _firstLoadedLine);
-        var oldExtent = sv.Extent.Height;
-
-        for (var i = toAdd - 1; i >= 0; i--)
-            Lines.Insert(0, ReadLine((int)(_firstLoadedLine - toAdd + i)));
-
-        _firstLoadedLine -= toAdd;
-
-        while (Lines.Count > WindowSize)
-            Lines.RemoveAt(Lines.Count - 1);
-
-        _adjustingScroll = true;
-        Dispatcher.UIThread.Post(() =>
-        {
-            sv.Offset = sv.Offset.WithY(sv.Offset.Y + (sv.Extent.Height - oldExtent));
-            _adjustingScroll = false;
-        }, DispatcherPriority.Loaded);
-    }
-    
-    
 
     private string ReadLine(int lineIndex)
     {
@@ -244,6 +206,7 @@ public partial class MainWindow : Window
                 if (buffer[i] == (byte)'\n')
                     offsets.Add(position + i + 1);
             }
+
             position += bytesRead;
         }
 
