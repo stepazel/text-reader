@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
@@ -17,16 +19,17 @@ public partial class MainWindow : Window
 {
     private const int WindowSize = 300;
     private const int SlideAmount = 50;
+    private const int ScrollBuffer = 100;
 
-    private long[] _offsets = [];
-    private long _fileLength;
-    private SafeFileHandle? _fileHandle;
+    private readonly long[] _offsets;
+    private readonly long _fileLength;
+    private readonly SafeFileHandle? _fileHandle;
     private long _firstLoadedLine;
     private bool _adjustingScroll;
     private bool _suppressVirtualScroll;
     private CancellationTokenSource? _debounceToken;
 
-    public ObservableCollection<string> Lines { get; } = new();
+    public AvaloniaList<string> Lines { get; } = [];
 
     public MainWindow()
     {
@@ -38,10 +41,11 @@ public partial class MainWindow : Window
         _fileHandle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read,
             FileOptions.RandomAccess);
         _fileLength = RandomAccess.GetLength(_fileHandle);
+        
 
-        VirtualScroll.Maximum = Math.Max(0, _offsets.Length - 1);
-        VirtualScroll.LargeChange = WindowSize / 2;
-        VirtualScroll.SmallChange = 3;
+        // VirtualScroll.Maximum = Math.Max(0, _offsets.Length - 1);
+        // VirtualScroll.LargeChange = WindowSize / 2;
+        // VirtualScroll.SmallChange = 3;
 
         LoadWindow(0);
 
@@ -61,6 +65,79 @@ public partial class MainWindow : Window
         var count = (int)Math.Min(WindowSize, _offsets.Length - firstLine);
         for (var i = 0; i < count; i++)
             Lines.Add(ReadLine((int)(firstLine + i)));
+    }
+    
+    private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (e.ExtentDelta.Y != 0 || _adjustingScroll)
+        {
+            return;
+        }
+
+        if (sender is not ScrollViewer sv)
+        {
+            return;
+        }
+        
+        var lineHeight = sv.Extent.Height / Lines.Count;
+        var firstVisible = _firstLoadedLine + (int)(sv.Offset.Y / lineHeight);
+        var lastVisible = firstVisible + (int)(sv.Viewport.Height / lineHeight);
+        var lastLoaded = _firstLoadedLine + Lines.Count - 1;
+        
+        Console.WriteLine($"first visible: {firstVisible}; last visible: {lastVisible}; firstLoaded: {_firstLoadedLine}; last loaded: {lastLoaded}");
+        if (lastLoaded - lastVisible <= ScrollBuffer) // Slide down
+        {
+            if (lastLoaded >= _offsets.Length - 1) return;
+            Console.WriteLine("Slide down");
+
+            const int changeSize = 100;
+            var linesToAdd = new string[changeSize];
+            for (var i = 0; i < changeSize; i++)
+            {
+                linesToAdd[i] = ReadLine((int)(lastLoaded + 1 + i));
+            }
+
+            _adjustingScroll = true;
+            Lines.RemoveRange(0, changeSize);
+            Lines.InsertRange(200, linesToAdd);
+            _firstLoadedLine += changeSize;
+            
+            Dispatcher.UIThread.Post(() =>                                                                                                                                                                                                                
+            {                                                                                                                                                                                                                                             
+                sv.Offset = sv.Offset.WithY(sv.Offset.Y - changeSize * lineHeight);                                                                                                                                                                       
+                _adjustingScroll = false;                                                                                                                                                                                                                 
+            }, DispatcherPriority.Loaded); 
+        }
+
+        // if (_firstLoadedLine - firstVisible <= ScrollBuffer) // Slide up
+        // {
+        //     if (_firstLoadedLine == 0) return;
+        //     Console.WriteLine("Slide up");
+        //     
+        //     const int changeSize = 100;
+        //     var linesToAdd = new string[changeSize];
+        //     for (var i = 0; i < changeSize; i++)
+        //     {
+        //         linesToAdd[i] = ReadLine((int)(_firstLoadedLine - 100 + i));
+        //     }
+        //
+        //     _adjustingScroll = true;
+        //     Lines.InsertRange(0, linesToAdd);
+        //     Lines.RemoveRange(300, changeSize);
+        //     _firstLoadedLine -= changeSize;
+        //     
+        //     Console.WriteLine(Lines.Count);
+        //     
+        //     Dispatcher.UIThread.Post(() =>                                                                                                                                                                                                                
+        //     {                                                                                                                                                                                                                                             
+        //         sv.Offset = sv.Offset.WithY(sv.Offset.Y - changeSize * lineHeight);                                                                                                                                                                       
+        //         _adjustingScroll = false;                                                                                                                                                                                                                 
+        //     }, DispatcherPriority.Loaded); 
+        // }
+
+
+        // Keep the virtual scrollbar in sync without triggering a reload
+        // SyncVirtualScroll(sv);
     }
 
     private async void OnVirtualScrollChanged(object? sender, RangeBaseValueChangedEventArgs e)
@@ -82,37 +159,18 @@ public partial class MainWindow : Window
         Scroller.Offset = Vector.Zero;
     }
 
-    private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
-    {
-        if (e.ExtentDelta.Y != 0 || _adjustingScroll)
-            return;
 
-        if (sender is not ScrollViewer sv) return;
-
-        var offset = sv.Offset.Y;
-        var viewport = sv.Viewport.Height;
-        var distanceFromBottom = sv.Extent.Height - viewport - offset;
-
-        if (distanceFromBottom < viewport / 2)
-            SlideDown();
-        else if (offset < viewport / 2)
-            SlideUp(sv);
-
-        // Keep the virtual scrollbar in sync without triggering a reload
-        SyncVirtualScroll(sv);
-    }
-
-    private void SyncVirtualScroll(ScrollViewer sv)
-    {
-        if (sv.Extent.Height <= 0) return;
-
-        var lineHeight = sv.Extent.Height / Lines.Count;
-        var firstVisibleInWindow = (long)(sv.Offset.Y / lineHeight);
-
-        _suppressVirtualScroll = true;
-        VirtualScroll.Value = _firstLoadedLine + firstVisibleInWindow;
-        _suppressVirtualScroll = false;
-    }
+    // private void SyncVirtualScroll(ScrollViewer sv)
+    // {
+    //     if (sv.Extent.Height <= 0) return;
+    //
+    //     var lineHeight = sv.Extent.Height / Lines.Count;
+    //     var firstVisibleInWindow = (long)(sv.Offset.Y / lineHeight);
+    //
+    //     _suppressVirtualScroll = true;
+    //     VirtualScroll.Value = _firstLoadedLine + firstVisibleInWindow;
+    //     _suppressVirtualScroll = false;
+    // }
 
     private void SlideDown()
     {

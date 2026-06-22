@@ -5,20 +5,16 @@
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="TextReader.MainWindow"
         x:CompileBindings="False"
+        d:DataContext="{d:DesignInstance Type=local:MainWindow}"
+        xmlns:local="clr-namespace:TextReader"
         Title="TextReader">
 
-    <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="Auto"/>
-        </Grid.ColumnDefinitions>
+    <Grid ColumnDefinitions="*,Auto">
 
-        <!-- Inner scroll handles pixel-smooth scrolling within the loaded window.
-             Vertical scrollbar hidden — the virtual ScrollBar on the right replaces it. -->
         <ScrollViewer x:Name="Scroller"
                       Grid.Column="0"
                       HorizontalScrollBarVisibility="Auto"
-                      VerticalScrollBarVisibility="Hidden"
+                      VerticalScrollBarVisibility="Visible"
                       ScrollChanged="OnScrollChanged">
             <ItemsControl ItemsSource="{Binding Lines}">
                 <ItemsControl.ItemTemplate>
@@ -32,12 +28,12 @@
             </ItemsControl>
         </ScrollViewer>
 
-        <!-- Virtual scrollbar: Maximum is set in code to total line count -->
-        <ScrollBar x:Name="VirtualScroll"
-                   Grid.Column="1"
-                   Orientation="Vertical"
-                   Minimum="0"
-                   ValueChanged="OnVirtualScrollChanged"/>
+        <!-- ~1~ Virtual scrollbar: Maximum is set in code to total line count @1@ -->
+        <!-- <ScrollBar x:Name="VirtualScroll" -->
+        <!--            Grid.Column="1" -->
+        <!--            Orientation="Vertical" -->
+        <!--            Minimum="0" -->
+        <!--            ValueChanged="OnVirtualScrollChanged"/> -->
     </Grid>
 
 </Window>
