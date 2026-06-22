@@ -46,6 +46,8 @@ public partial class MainWindow : Window
             Scroller.Focus(); // Zajistí handlování klávesových eventů
             var lineHeight = Scroller.Extent.Height / Lines.Count;
             VirtualScroll.Maximum = _offsets.Length - 1;
+            VirtualScroll.SmallChange = 1;
+            VirtualScroll.LargeChange = (int)(Scroller.Viewport.Height / lineHeight);
             VirtualScroll.ViewportSize = (int)(Scroller.Viewport.Height / lineHeight);
         };
         Closed += (_, _) => _fileHandle.Dispose();
@@ -86,7 +88,7 @@ public partial class MainWindow : Window
                 Scroller.Offset = Scroller.Offset.WithY(Scroller.Offset.Y - lineHeight);
                 e.Handled = true;
                 break;
-            case Key.PageDown:
+            case Key.PageDown: // Jsou PageUp/Down needed nebo je to handled avalonii?
                 Scroller.Offset = Scroller.Offset.WithY(Scroller.Offset.Y + Scroller.Viewport.Height);
                 e.Handled = true;
                 break;
