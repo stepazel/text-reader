@@ -15,6 +15,7 @@
                       Grid.Column="0"
                       HorizontalScrollBarVisibility="Auto"
                       VerticalScrollBarVisibility="Visible"
+                      Focusable="True"
                       ScrollChanged="OnScrollChanged">
             <ItemsControl ItemsSource="{Binding Lines}">
                 <ItemsControl.ItemTemplate>

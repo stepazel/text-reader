@@ -39,15 +39,13 @@ public partial class MainWindow : Window
             FileOptions.RandomAccess);
         _fileLength = RandomAccess.GetLength(_fileHandle);
 
-
         // VirtualScroll.Maximum = Math.Max(0, _offsets.Length - 1);
         // VirtualScroll.LargeChange = WindowSize / 2;
         // VirtualScroll.SmallChange = 3;
 
         LoadWindow(0);
-
+        Opened += (_, _) => Scroller.Focus();
         Closed += (_, _) => _fileHandle.Dispose();
-
         DataContext = this;
     }
 
