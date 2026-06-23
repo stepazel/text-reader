@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -54,7 +55,9 @@ public partial class MainWindow : Window
         if (_tempFile != null) { try { File.Delete(_tempFile); } catch { /* ignore */ } }
         _tempFile = isTempFile ? path : null;
 
+        var stopwatch = Stopwatch.StartNew();
         _offsets = BuildLineOffsets(path);
+        Console.WriteLine($"Loaded file in {stopwatch.ElapsedMilliseconds}ms");
         _fileHandle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read,
             FileOptions.RandomAccess);
         _fileLength = RandomAccess.GetLength(_fileHandle);
@@ -362,18 +365,22 @@ public partial class MainWindow : Window
     {
         var offsets = new List<long> { 0L };
 
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
-            bufferSize: 65536);
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 65536);
         var buffer = new byte[65536];
         long position = 0;
         int bytesRead;
 
         while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
         {
-            for (var i = 0; i < bytesRead; i++)
+            var span = buffer.AsSpan(0, bytesRead);
+            var idx = 0;
+            while (true)
             {
-                if (buffer[i] == (byte)'\n')
-                    offsets.Add(position + i + 1);
+                var found = span[idx..].IndexOf((byte)'\n');
+                if (found < 0) break;
+                idx += found;
+                offsets.Add(position + idx + 1);
+                idx++;
             }
             position += bytesRead;
         }
