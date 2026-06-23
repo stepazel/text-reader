@@ -212,6 +212,9 @@ public partial class MainWindow : Window
         {
             Scroller.Offset = new Vector(0, lineInBuffer * lineHeight);
             _adjustingScroll = false;
+            _suppressVirtualScroll = true;
+            VirtualScroll.Value = docLine;
+            _suppressVirtualScroll = false;
         }, DispatcherPriority.Loaded);
     }
 
@@ -275,6 +278,10 @@ public partial class MainWindow : Window
         var lastVisible = firstVisible + (int)(sv.Viewport.Height / lineHeight);
         var lastLoaded = _firstLoadedLine + Lines.Count - 1;
 
+        _suppressVirtualScroll = true;
+        VirtualScroll.Value = firstVisible;
+        _suppressVirtualScroll = false;
+
         if (lastLoaded - lastVisible <= ScrollBuffer)
         {
             if (lastLoaded >= _offsets.Length - 1) return;
@@ -317,10 +324,6 @@ public partial class MainWindow : Window
                 _adjustingScroll = false;
             }, DispatcherPriority.Loaded);
         }
-
-        _suppressVirtualScroll = true;
-        VirtualScroll.Value = firstVisible;
-        _suppressVirtualScroll = false;
     }
 
     private async void OnVirtualScrollChanged(object? sender, RangeBaseValueChangedEventArgs e)
