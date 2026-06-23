@@ -55,9 +55,31 @@ public partial class MainWindow : Window
         if (_tempFile != null) { try { File.Delete(_tempFile); } catch { /* ignore */ } }
         _tempFile = isTempFile ? path : null;
 
+        var progressBar = new ProgressBar { Minimum = 0, Maximum = 100, Value = 0, Width = 260, Margin = new Thickness(16, 16, 16, 8) };
+        var progressLabel = new TextBlock { Text = "0 %", HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 16) };
+        var progressWindow = new Window
+        {
+            Title = "Načítání souboru...",
+            Width = 300,
+            Height = 100,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel { Children = { progressBar, progressLabel } }
+        };
+        progressWindow.Show(this);
+
+        var progress = new Progress<double>(pct =>
+        {
+            progressBar.Value = pct;
+            progressLabel.Text = $"{pct:0} %";
+        });
+
         var stopwatch = Stopwatch.StartNew();
-        _offsets = await Task.Run(() => BuildLineOffsets(path));
+        _offsets = await Task.Run(() => BuildLineOffsets(path, progress));
         Console.WriteLine($"Loaded file in {stopwatch.ElapsedMilliseconds}ms");
+
+        progressWindow.Close();
+
         _fileHandle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read,
             FileOptions.RandomAccess);
         _fileLength = RandomAccess.GetLength(_fileHandle);
@@ -361,7 +383,7 @@ public partial class MainWindow : Window
         return Encoding.UTF8.GetString(bytes).TrimEnd('\r', '\n');
     }
 
-    private static long[] BuildLineOffsets(string path)
+    private static long[] BuildLineOffsets(string path, IProgress<double>? progress = null)
     {
         var fileLength = new FileInfo(path).Length;
         var capacity = (int)Math.Min(fileLength / 40 + 1, int.MaxValue);
@@ -380,6 +402,7 @@ public partial class MainWindow : Window
         var processBuf = bufA;
         var readBuf = bufB;
         long position = 0;
+        var reportCounter = 0;
 
         while (true)
         {
@@ -400,9 +423,13 @@ public partial class MainWindow : Window
             }
             position += bytesRead;
 
+            if (progress != null && ++reportCounter % 10 == 0)
+                progress.Report(position * 100.0 / fileLength);
+
             (processBuf, readBuf) = (readBuf, processBuf);
         }
 
+        progress?.Report(100);
         return offsets[..count];
     }
 }
