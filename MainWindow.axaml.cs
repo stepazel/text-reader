@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,6 +11,9 @@ using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Microsoft.Win32.SafeHandles;
 
@@ -19,9 +24,10 @@ public partial class MainWindow : Window
     private const int WindowSize = 500;
     private const int ScrollBuffer = 100;
 
-    private readonly long[] _offsets;
-    private readonly long _fileLength;
-    private readonly SafeFileHandle? _fileHandle;
+    private long[] _offsets = [];
+    private long _fileLength;
+    private SafeFileHandle? _fileHandle;
+    private string? _tempFile;
     private long _firstLoadedLine;
     private bool _adjustingScroll;
     private bool _suppressVirtualScroll;
@@ -32,26 +38,164 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Opened += (_, _) => Scroller.Focus();
+        Closed += (_, _) =>
+        {
+            _fileHandle?.Dispose();
+            if (_tempFile == null) return;
+            try { File.Delete(_tempFile); } catch { /* ignore */ }
+        };
+        DataContext = this;
+    }
 
-        var path = Path.Combine("Test", "big.txt");
+    private void OpenFile(string path, bool isTempFile = false)
+    {
+        _fileHandle?.Dispose();
+        if (_tempFile != null) { try { File.Delete(_tempFile); } catch { /* ignore */ } }
+        _tempFile = isTempFile ? path : null;
+
         _offsets = BuildLineOffsets(path);
-
         _fileHandle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read,
             FileOptions.RandomAccess);
         _fileLength = RandomAccess.GetLength(_fileHandle);
+        _firstLoadedLine = 0;
 
         LoadWindow(0);
-        Opened += (_, _) =>
+        Scroller.Offset = Vector.Zero;
+
+        Dispatcher.UIThread.Post(() =>
         {
-            Scroller.Focus(); // Zajistí handlování klávesových eventů
+            if (Lines.Count == 0) return;
             var lineHeight = Scroller.Extent.Height / Lines.Count;
+            var pageLines = (int)(Scroller.Viewport.Height / lineHeight);
             VirtualScroll.Maximum = _offsets.Length - 1;
             VirtualScroll.SmallChange = 1;
-            VirtualScroll.LargeChange = (int)(Scroller.Viewport.Height / lineHeight);
-            VirtualScroll.ViewportSize = (int)(Scroller.Viewport.Height / lineHeight);
+            VirtualScroll.LargeChange = pageLines;
+            VirtualScroll.ViewportSize = pageLines;
+            VirtualScroll.Value = 0;
+        }, DispatcherPriority.Loaded);
+    }
+
+    private async void OnOpenFileClicked(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Otevřít textový soubor",
+            AllowMultiple = false,
+            FileTypeFilter = [new FilePickerFileType("Textové soubory") { Patterns = ["*.txt"] }]
+        });
+
+        if (files.Count == 0) return;
+        var localPath = files[0].TryGetLocalPath();
+        if (localPath == null) return;
+
+        OpenFile(localPath);
+    }
+
+    private async void OnOpenUrlClicked(object? sender, RoutedEventArgs e)
+    {
+        var url = await ShowUrlInputDialog();
+        if (string.IsNullOrWhiteSpace(url)) return;
+
+        var statusLabel = new TextBlock
+        {
+            Text = "Stahování...",
+            Margin = new Thickness(20, 20, 20, 8),
+            HorizontalAlignment = HorizontalAlignment.Center
         };
-        Closed += (_, _) => _fileHandle.Dispose();
-        DataContext = this;
+        var closeBtn = new Button
+        {
+            Content = "Zavřít",
+            IsVisible = false,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        var statusWindow = new Window
+        {
+            Title = "TextReader",
+            Width = 300,
+            Height = 110,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel { Children = { statusLabel, closeBtn } }
+        };
+        closeBtn.Click += (_, _) => statusWindow.Close();
+        statusWindow.Show(this);
+
+        try
+        {
+            using var http = new HttpClient();
+            var response = await http.GetAsync(url);
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                statusLabel.Text = "404 – Soubor nebyl nalezen";
+                closeBtn.IsVisible = true;
+                return;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                statusLabel.Text = "Vyskytla se chyba při stahování";
+                closeBtn.IsVisible = true;
+                return;
+            }
+
+            var content = await response.Content.ReadAsStringAsync();
+            var tempPath = Path.GetTempFileName();
+            await File.WriteAllTextAsync(tempPath, content);
+            statusWindow.Close();
+            OpenFile(tempPath, isTempFile: true);
+        }
+        catch
+        {
+            statusLabel.Text = "Vyskytla se chyba při stahování";
+            closeBtn.IsVisible = true;
+        }
+    }
+
+    private async Task<string?> ShowUrlInputDialog()
+    {
+        var textBox = new TextBox
+        {
+            PlaceholderText = "https://",
+            Margin = new Thickness(12, 12, 12, 8),
+            MinWidth = 360
+        };
+
+        var okBtn = new Button { Content = "Otevřít" };
+        var cancelBtn = new Button { Content = "Zrušit" };
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(12, 0, 12, 12),
+            Spacing = 8,
+            Children = { okBtn, cancelBtn }
+        };
+
+        var dialog = new Window
+        {
+            Title = "Otevřít z URL",
+            Width = 420,
+            Height = 120,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel { Children = { textBox, buttons } }
+        };
+
+        string? result = null;
+        okBtn.Click += (_, _) => { result = textBox.Text; dialog.Close(); };
+        cancelBtn.Click += (_, _) => dialog.Close();
+        textBox.KeyDown += (_, ke) =>
+        {
+            if (ke.Key == Key.Enter) { result = textBox.Text; dialog.Close(); }
+            else if (ke.Key == Key.Escape) dialog.Close();
+        };
+
+        await dialog.ShowDialog(this);
+        return result;
     }
 
     private void NavigateTo(long docLine)
@@ -77,7 +221,6 @@ public partial class MainWindow : Window
 
         var lineHeight = Scroller.Extent.Height / Lines.Count;
 
-        // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
         switch (e.Key)
         {
             case Key.Down:
@@ -88,7 +231,7 @@ public partial class MainWindow : Window
                 Scroller.Offset = Scroller.Offset.WithY(Scroller.Offset.Y - lineHeight);
                 e.Handled = true;
                 break;
-            case Key.PageDown: // Jsou PageUp/Down needed nebo je to handled avalonii?
+            case Key.PageDown:
                 Scroller.Offset = Scroller.Offset.WithY(Scroller.Offset.Y + Scroller.Viewport.Height);
                 e.Handled = true;
                 break;
@@ -118,46 +261,34 @@ public partial class MainWindow : Window
         Lines.Clear();
         var count = (int)Math.Min(WindowSize, _offsets.Length - firstLine);
         for (var i = 0; i < count; i++)
-        {
             Lines.Add(ReadLine((int)(firstLine + i)));
-        }
     }
 
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
-        if (e.ExtentDelta.Y != 0 || _adjustingScroll)
-        {
-            return;
-        }
-
-        if (sender is not ScrollViewer sv)
-        {
-            return;
-        }
+        if (e.ExtentDelta.Y != 0 || _adjustingScroll) return;
+        if (sender is not ScrollViewer sv) return;
+        if (Lines.Count == 0) return;
 
         var lineHeight = sv.Extent.Height / Lines.Count;
         var firstVisible = _firstLoadedLine + (int)(sv.Offset.Y / lineHeight);
         var lastVisible = firstVisible + (int)(sv.Viewport.Height / lineHeight);
         var lastLoaded = _firstLoadedLine + Lines.Count - 1;
 
-        if (lastLoaded - lastVisible <= ScrollBuffer) // Slide down
+        if (lastLoaded - lastVisible <= ScrollBuffer)
         {
             if (lastLoaded >= _offsets.Length - 1) return;
 
             const int changeSize = 100;
             var linesToAdd = new string[changeSize];
             for (var i = 0; i < changeSize; i++)
-            {
                 linesToAdd[i] = ReadLine((int)(lastLoaded + 1 + i));
-            }
 
             _adjustingScroll = true;
             Lines.AddRange(linesToAdd);
             _firstLoadedLine += changeSize;
             if (Lines.Count > WindowSize)
-            {
                 Lines.RemoveRange(0, changeSize);
-            }
 
             Dispatcher.UIThread.Post(() =>
             {
@@ -166,18 +297,14 @@ public partial class MainWindow : Window
             }, DispatcherPriority.Loaded);
             return;
         }
-        
 
-        var bufferRemainingTop = firstVisible - _firstLoadedLine; // kolik řádků je nad prvním viditelným 
-        if (bufferRemainingTop <= ScrollBuffer && _firstLoadedLine > 0) // Slide up
+        var bufferRemainingTop = firstVisible - _firstLoadedLine;
+        if (bufferRemainingTop <= ScrollBuffer && _firstLoadedLine > 0)
         {
             const int changeSize = 100;
-
             var linesToAdd = new string[changeSize];
             for (var i = 0; i < changeSize; i++)
-            {
                 linesToAdd[i] = ReadLine((int)(_firstLoadedLine - changeSize + i));
-            }
 
             _adjustingScroll = true;
             Lines.InsertRange(0, linesToAdd);
@@ -190,7 +317,6 @@ public partial class MainWindow : Window
                 _adjustingScroll = false;
             }, DispatcherPriority.Loaded);
         }
-
 
         _suppressVirtualScroll = true;
         VirtualScroll.Value = firstVisible;
@@ -215,10 +341,9 @@ public partial class MainWindow : Window
         NavigateTo((long)e.NewValue);
     }
 
-
     private string ReadLine(int lineIndex)
     {
-        if (lineIndex >= _offsets.Length || _fileHandle is null)
+        if (lineIndex < 0 || lineIndex >= _offsets.Length || _fileHandle is null)
             return string.Empty;
 
         var start = _offsets[lineIndex];
@@ -247,7 +372,6 @@ public partial class MainWindow : Window
                 if (buffer[i] == (byte)'\n')
                     offsets.Add(position + i + 1);
             }
-
             position += bytesRead;
         }
 
