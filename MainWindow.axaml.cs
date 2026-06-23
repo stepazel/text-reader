@@ -68,7 +68,7 @@ public partial class MainWindow : Window
             if (Lines.Count == 0) return;
             var lineHeight = Scroller.Extent.Height / Lines.Count;
             var pageLines = (int)(Scroller.Viewport.Height / lineHeight);
-            VirtualScroll.Maximum = _offsets.Length - 1;
+            VirtualScroll.Maximum = Math.Max(0, _offsets.Length - pageLines);
             VirtualScroll.SmallChange = 1;
             VirtualScroll.LargeChange = pageLines;
             VirtualScroll.ViewportSize = pageLines;
@@ -247,7 +247,7 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.End:
-                NavigateTo(_offsets.Length - 1);
+                NavigateTo(Math.Max(0, _offsets.Length - (int)(Scroller.Viewport.Height / lineHeight)));
                 e.Handled = true;
                 break;
             default:
