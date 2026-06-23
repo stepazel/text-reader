@@ -31,10 +31,7 @@ public partial class MainWindow : Window
     private long _firstLoadedLine;
     private bool _adjustingScroll;
     private bool _suppressVirtualScroll;
-    private bool _isAnimating;
-    private int _slideVersion;
     private CancellationTokenSource? _debounceToken;
-    private CancellationTokenSource? _scrollAnimToken;
 
     public AvaloniaList<string> Lines { get; } = [];
 
@@ -238,11 +235,11 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.PageDown:
-                AnimatedScrollBy(+Scroller.Viewport.Height);
+                Scroller.Offset = Scroller.Offset.WithY(Scroller.Offset.Y + Scroller.Viewport.Height);
                 e.Handled = true;
                 break;
             case Key.PageUp:
-                AnimatedScrollBy(-Scroller.Viewport.Height);
+                Scroller.Offset = Scroller.Offset.WithY(Scroller.Offset.Y - Scroller.Viewport.Height);
                 e.Handled = true;
                 break;
             case Key.Home:
@@ -270,59 +267,11 @@ public partial class MainWindow : Window
             Lines.Add(ReadLine((int)(firstLine + i)));
     }
 
-    private async void AnimatedScrollBy(double deltaY)
-    {
-        _scrollAnimToken?.Cancel();
-        _scrollAnimToken = new CancellationTokenSource();
-        var token = _scrollAnimToken.Token;
-
-        // Invalidate any pending slide-compensation Post callbacks and reset state
-        _slideVersion++;
-        _adjustingScroll = false;
-
-        var startY = Scroller.Offset.Y;
-        var maxY = Math.Max(0, Scroller.Extent.Height - Scroller.Viewport.Height);
-        var targetY = Math.Clamp(startY + deltaY, 0, maxY);
-
-        const int durationMs = 180;
-        var startTick = Environment.TickCount64;
-        _isAnimating = true;
-
-        try
-        {
-            while (true)
-            {
-                var t = Math.Min(1.0, (double)(Environment.TickCount64 - startTick) / durationMs);
-                var eased = 1 - Math.Pow(1 - t, 3); // cubic ease-out
-                Scroller.Offset = Scroller.Offset.WithY(startY + (targetY - startY) * eased);
-
-                if (t >= 1.0) break;
-                await Task.Delay(8, token); // ~120 fps
-            }
-        }
-        catch (OperationCanceledException) { return; }
-        finally
-        {
-            // Only clear flag if this animation wasn't replaced by a newer one
-            if (!token.IsCancellationRequested)
-                _isAnimating = false;
-        }
-
-        ProcessScrollState(Scroller);
-    }
-
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
-        if (e.ExtentDelta.Y != 0 || _adjustingScroll || _isAnimating) return;
+        if (e.ExtentDelta.Y != 0 || _adjustingScroll) return;
         if (sender is not ScrollViewer sv) return;
         if (Lines.Count == 0) return;
-
-        ProcessScrollState(sv);
-    }
-
-    private void ProcessScrollState(ScrollViewer sv)
-    {
-        if (Lines.Count == 0 || sv.Extent.Height == 0) return;
 
         var lineHeight = sv.Extent.Height / Lines.Count;
         var firstVisible = _firstLoadedLine + (int)(sv.Offset.Y / lineHeight);
@@ -348,10 +297,8 @@ public partial class MainWindow : Window
             if (Lines.Count > WindowSize)
                 Lines.RemoveRange(0, changeSize);
 
-            var downVer = ++_slideVersion;
             Dispatcher.UIThread.Post(() =>
             {
-                if (_slideVersion != downVer) return;
                 sv.Offset = sv.Offset.WithY(sv.Offset.Y - changeSize * lineHeight);
                 _adjustingScroll = false;
             }, DispatcherPriority.Loaded);
@@ -371,10 +318,8 @@ public partial class MainWindow : Window
             Lines.RemoveRange(Lines.Count - changeSize, changeSize);
             _firstLoadedLine -= changeSize;
 
-            var upVer = ++_slideVersion;
             Dispatcher.UIThread.Post(() =>
             {
-                if (_slideVersion != upVer) return;
                 sv.Offset = sv.Offset.WithY(sv.Offset.Y + changeSize * lineHeight);
                 _adjustingScroll = false;
             }, DispatcherPriority.Loaded);
