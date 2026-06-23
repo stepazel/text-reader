@@ -49,14 +49,14 @@ public partial class MainWindow : Window
         DataContext = this;
     }
 
-    private void OpenFile(string path, bool isTempFile = false)
+    private async Task OpenFile(string path, bool isTempFile = false)
     {
         _fileHandle?.Dispose();
         if (_tempFile != null) { try { File.Delete(_tempFile); } catch { /* ignore */ } }
         _tempFile = isTempFile ? path : null;
 
         var stopwatch = Stopwatch.StartNew();
-        _offsets = BuildLineOffsets(path);
+        _offsets = await Task.Run(() => BuildLineOffsets(path));
         Console.WriteLine($"Loaded file in {stopwatch.ElapsedMilliseconds}ms");
         _fileHandle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read,
             FileOptions.RandomAccess);
@@ -92,7 +92,7 @@ public partial class MainWindow : Window
         var localPath = files[0].TryGetLocalPath();
         if (localPath == null) return;
 
-        OpenFile(localPath);
+        await OpenFile(localPath);
     }
 
     private async void OnOpenUrlClicked(object? sender, RoutedEventArgs e)
@@ -148,7 +148,7 @@ public partial class MainWindow : Window
             var tempPath = Path.GetTempFileName();
             await File.WriteAllTextAsync(tempPath, content);
             statusWindow.Close();
-            OpenFile(tempPath, isTempFile: true);
+            await OpenFile(tempPath, isTempFile: true);
         }
         catch
         {
@@ -363,28 +363,46 @@ public partial class MainWindow : Window
 
     private static long[] BuildLineOffsets(string path)
     {
-        var offsets = new List<long> { 0L };
+        var fileLength = new FileInfo(path).Length;
+        var capacity = (int)Math.Min(fileLength / 40 + 1, int.MaxValue);
+        var offsets = new long[capacity];
+        var count = 1;
 
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 65536);
-        var buffer = new byte[65536];
+        const int bufSize = 1 << 20;
+        var bufA = new byte[bufSize];
+        var bufB = new byte[bufSize];
+
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.Read, bufferSize: bufSize,
+            options: FileOptions.SequentialScan | FileOptions.Asynchronous);
+
+        var readTask = stream.ReadAsync(bufA, 0, bufSize);
+        var processBuf = bufA;
+        var readBuf = bufB;
         long position = 0;
-        int bytesRead;
 
-        while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
+        while (true)
         {
-            var span = buffer.AsSpan(0, bytesRead);
+            var bytesRead = readTask.GetAwaiter().GetResult();
+            if (bytesRead == 0) break;
+
+            readTask = stream.ReadAsync(readBuf, 0, bufSize);
+
+            var span = processBuf.AsSpan(0, bytesRead);
             var idx = 0;
             while (true)
             {
                 var found = span[idx..].IndexOf((byte)'\n');
                 if (found < 0) break;
                 idx += found;
-                offsets.Add(position + idx + 1);
+                offsets[count++] = position + idx + 1;
                 idx++;
             }
             position += bytesRead;
+
+            (processBuf, readBuf) = (readBuf, processBuf);
         }
 
-        return offsets.ToArray();
+        return offsets[..count];
     }
 }
