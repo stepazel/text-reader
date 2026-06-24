@@ -11,3 +11,4 @@
 - Předpokládá se UTF-8 kódování
 - Řádky se newrapují
 - Každý řádek ze souboru je jeden TextBlock komponent. Lépe se pak ve vyhledávání zvýrazňují
+- Soubor se otevře okamžitě (stream) a ihned se začne v pozadí indexovat pro rychlý random access.

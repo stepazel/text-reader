@@ -29,12 +29,20 @@ public partial class MainWindow : Window
     private long _fileLength;
     private SafeFileHandle? _fileHandle;
     private string? _tempFile;
+    private string? _filePath;
     private long _firstLoadedLine;
     private bool _adjustingScroll;
     private bool _suppressVirtualScroll;
     private CancellationTokenSource? _debounceToken;
 
-    public AvaloniaList<string> Lines { get; } = [];
+    private string _activeQuery = "";
+    private long[] _searchResults = [];
+    private int _currentResultIndex = -1;
+    private CancellationTokenSource? _searchCts;
+    private CancellationTokenSource? _searchDebounceToken;
+    private int _searchGeneration;
+
+    public AvaloniaList<LineItem> Lines { get; } = [];
 
     public MainWindow()
     {
@@ -43,20 +51,47 @@ public partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _fileHandle?.Dispose();
+            _searchCts?.Cancel();
             if (_tempFile == null) return;
-            try { File.Delete(_tempFile); } catch { /* ignore */ }
+            try
+            {
+                File.Delete(_tempFile);
+            }
+            catch
+            {
+                /* ignore */
+            }
         };
         DataContext = this;
     }
 
     private async Task OpenFile(string path, bool isTempFile = false)
     {
+        _searchCts?.Cancel();
+        _searchResults = [];
+        _currentResultIndex = -1;
+        SearchStatus.Text = "";
+        SearchProgress.IsVisible = false;
+
         _fileHandle?.Dispose();
-        if (_tempFile != null) { try { File.Delete(_tempFile); } catch { /* ignore */ } }
+        if (_tempFile != null)
+        {
+            try
+            {
+                File.Delete(_tempFile);
+            }
+            catch
+            {
+                /* ignore */
+            }
+        }
+
         _tempFile = isTempFile ? path : null;
 
-        var progressBar = new ProgressBar { Minimum = 0, Maximum = 100, Value = 0, Width = 260, Margin = new Thickness(16, 16, 16, 8) };
-        var progressLabel = new TextBlock { Text = "0 %", HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 16) };
+        var progressBar = new ProgressBar
+            { Minimum = 0, Maximum = 100, Value = 0, Width = 260, Margin = new Thickness(16, 16, 16, 8) };
+        var progressLabel = new TextBlock
+            { Text = "0 %", HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 16) };
         var progressWindow = new Window
         {
             Title = "Načítání souboru...",
@@ -83,6 +118,7 @@ public partial class MainWindow : Window
         _fileHandle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read,
             FileOptions.RandomAccess);
         _fileLength = RandomAccess.GetLength(_fileHandle);
+        _filePath = path;
         _firstLoadedLine = 0;
 
         LoadWindow(0);
@@ -211,11 +247,19 @@ public partial class MainWindow : Window
         };
 
         string? result = null;
-        okBtn.Click += (_, _) => { result = textBox.Text; dialog.Close(); };
+        okBtn.Click += (_, _) =>
+        {
+            result = textBox.Text;
+            dialog.Close();
+        };
         cancelBtn.Click += (_, _) => dialog.Close();
         textBox.KeyDown += (_, ke) =>
         {
-            if (ke.Key == Key.Enter) { result = textBox.Text; dialog.Close(); }
+            if (ke.Key == Key.Enter)
+            {
+                result = textBox.Text;
+                dialog.Close();
+            }
             else if (ke.Key == Key.Escape) dialog.Close();
         };
 
@@ -245,7 +289,11 @@ public partial class MainWindow : Window
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        if (Lines.Count == 0 || Scroller.Extent.Height == 0) { base.OnKeyDown(e); return; }
+        if (Lines.Count == 0 || Scroller.Extent.Height == 0)
+        {
+            base.OnKeyDown(e);
+            return;
+        }
 
         var lineHeight = Scroller.Extent.Height / Lines.Count;
 
@@ -275,6 +323,10 @@ public partial class MainWindow : Window
                 NavigateTo(Math.Max(0, _offsets.Length - (int)(Scroller.Viewport.Height / lineHeight)));
                 e.Handled = true;
                 break;
+            case Key.F3:
+                NavigateSearch(e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? -1 : +1);
+                e.Handled = true;
+                break;
             default:
                 base.OnKeyDown(e);
                 break;
@@ -289,7 +341,7 @@ public partial class MainWindow : Window
         Lines.Clear();
         var count = (int)Math.Min(WindowSize, _offsets.Length - firstLine);
         for (var i = 0; i < count; i++)
-            Lines.Add(ReadLine((int)(firstLine + i)));
+            Lines.Add(new LineItem(ReadLine((int)(firstLine + i)), _activeQuery));
     }
 
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
@@ -312,9 +364,9 @@ public partial class MainWindow : Window
             if (lastLoaded >= _offsets.Length - 1) return;
 
             const int changeSize = 100;
-            var linesToAdd = new string[changeSize];
+            var linesToAdd = new LineItem[changeSize];
             for (var i = 0; i < changeSize; i++)
-                linesToAdd[i] = ReadLine((int)(lastLoaded + 1 + i));
+                linesToAdd[i] = new LineItem(ReadLine((int)(lastLoaded + 1 + i)), _activeQuery);
 
             _adjustingScroll = true;
             Lines.AddRange(linesToAdd);
@@ -334,9 +386,9 @@ public partial class MainWindow : Window
         if (bufferRemainingTop <= ScrollBuffer && _firstLoadedLine > 0)
         {
             const int changeSize = 100;
-            var linesToAdd = new string[changeSize];
+            var linesToAdd = new LineItem[changeSize];
             for (var i = 0; i < changeSize; i++)
-                linesToAdd[i] = ReadLine((int)(_firstLoadedLine - changeSize + i));
+                linesToAdd[i] = new LineItem(ReadLine((int)(_firstLoadedLine - changeSize + i)), _activeQuery);
 
             _adjustingScroll = true;
             Lines.InsertRange(0, linesToAdd);
@@ -421,6 +473,7 @@ public partial class MainWindow : Window
                 offsets[count++] = position + idx + 1;
                 idx++;
             }
+
             position += bytesRead;
 
             if (progress != null && ++reportCounter % 10 == 0)
@@ -431,5 +484,194 @@ public partial class MainWindow : Window
 
         progress?.Report(100);
         return offsets[..count];
+    }
+
+    // --- Search ---
+
+    private async void OnSearchTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        _searchDebounceToken?.Cancel();
+        _searchDebounceToken = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(300, _searchDebounceToken.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        await StartSearchAsync(SearchBox.Text ?? "");
+    }
+
+    private void OnSearchNext(object? sender, RoutedEventArgs e) => NavigateSearch(+1);
+    private void OnSearchPrev(object? sender, RoutedEventArgs e) => NavigateSearch(-1);
+
+    private void NavigateSearch(int direction)
+    {
+        if (_searchResults.Length == 0) return;
+        _currentResultIndex = (_currentResultIndex + direction + _searchResults.Length) % _searchResults.Length;
+        SearchStatus.Text = $"{_currentResultIndex + 1} z {_searchResults.Length}";
+        NavigateTo(_searchResults[_currentResultIndex]);
+    }
+
+    private void ApplySearchQuery(string query)
+    {
+        _activeQuery = query;
+        foreach (var item in Lines)
+            item.Query = query;
+    }
+
+    private async Task StartSearchAsync(string query)
+    {
+        _searchCts?.Cancel();
+        _searchResults = [];
+        _currentResultIndex = -1;
+
+        if (string.IsNullOrWhiteSpace(query) || _filePath == null)
+        {
+            ApplySearchQuery("");
+            SearchStatus.Text = "";
+            SearchProgress.IsVisible = false;
+            return;
+        }
+
+        ApplySearchQuery(query);
+
+        var generation = ++_searchGeneration;
+        _searchCts = new CancellationTokenSource();
+        var ct = _searchCts.Token;
+
+        SearchProgress.IsVisible = true;
+        SearchProgress.Value = 0;
+        SearchStatus.Text = "Hledám...";
+
+        var path = _filePath;
+        var results = new List<long>();
+
+        var progress = new Progress<(double pct, int found)>(state =>
+        {
+            if (_searchGeneration != generation) return;
+            SearchProgress.Value = state.pct;
+            SearchStatus.Text = state.found > 0 ? $"... z {state.found}" : "Hledám...";
+        });
+
+        try
+        {
+            await Task.Run(() => SearchInFile(path, query, results, progress, ct), ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (ct.IsCancellationRequested || _searchGeneration != generation) return;
+
+        _searchResults = results.ToArray();
+        _currentResultIndex = _searchResults.Length > 0 ? 0 : -1;
+        SearchProgress.IsVisible = false;
+
+        if (_searchResults.Length == 0)
+        {
+            SearchStatus.Text = "Nenalezeno";
+        }
+        else
+        {
+            SearchStatus.Text = $"1 z {_searchResults.Length}";
+            NavigateTo(_searchResults[0]);
+        }
+    }
+
+    private static void SearchInFile(
+        string path, string query, List<long> results,
+        IProgress<(double pct, int found)> progress, CancellationToken ct)
+    {
+        var fileLength = new FileInfo(path).Length;
+        if (fileLength == 0) return;
+
+        const int bufSize = 4 << 20;
+        var buf = new byte[bufSize];
+        var partialLine = new byte[4096];
+        int partialLen = 0;
+        long lineNumber = 0;
+        long bytesProcessed = 0;
+        int bufCount = 0;
+        int lastReportedCount = -1;
+
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.Read, bufSize, FileOptions.SequentialScan);
+
+        while (!ct.IsCancellationRequested)
+        {
+            var read = stream.Read(buf, 0, bufSize);
+            if (read == 0) break;
+            bytesProcessed += read;
+            bufCount++;
+
+            var span = buf.AsSpan(0, read);
+            var pos = 0;
+
+            while (pos < span.Length)
+            {
+                var nl = span[pos..].IndexOf((byte)'\n');
+                if (nl < 0)
+                {
+                    var rest = span[pos..];
+                    if (partialLen + rest.Length > partialLine.Length)
+                        Array.Resize(ref partialLine, Math.Max(partialLine.Length * 2, partialLen + rest.Length));
+                    rest.CopyTo(partialLine.AsSpan(partialLen));
+                    partialLen += rest.Length;
+                    break;
+                }
+
+                string lineText;
+                if (partialLen > 0)
+                {
+                    var chunk = span[pos..(pos + nl)];
+                    if (partialLen + chunk.Length > partialLine.Length)
+                        Array.Resize(ref partialLine, Math.Max(partialLine.Length * 2, partialLen + chunk.Length));
+                    chunk.CopyTo(partialLine.AsSpan(partialLen));
+                    lineText = Encoding.UTF8.GetString(partialLine, 0, partialLen + chunk.Length);
+                    partialLen = 0;
+                }
+                else
+                {
+                    lineText = Encoding.UTF8.GetString(span[pos..(pos + nl)]);
+                }
+
+                var searchFrom = 0;
+                while (true)
+                {
+                    var matchIdx = lineText.IndexOf(query, searchFrom, StringComparison.OrdinalIgnoreCase);
+                    if (matchIdx < 0) break;
+                    results.Add(lineNumber);
+                    searchFrom = matchIdx + query.Length;
+                }
+
+                lineNumber++;
+                pos += nl + 1;
+            }
+
+            if (bufCount % 4 == 0 || results.Count > lastReportedCount)
+            {
+                progress.Report((bytesProcessed * 100.0 / fileLength, results.Count));
+                lastReportedCount = results.Count;
+            }
+        }
+
+        if (partialLen > 0 && !ct.IsCancellationRequested)
+        {
+            var lineText = Encoding.UTF8.GetString(partialLine, 0, partialLen);
+            var searchFrom = 0;
+            while (true)
+            {
+                var matchIdx = lineText.IndexOf(query, searchFrom, StringComparison.OrdinalIgnoreCase);
+                if (matchIdx < 0) break;
+                results.Add(lineNumber);
+                searchFrom = matchIdx + query.Length;
+            }
+        }
+
+        progress.Report((100.0, results.Count));
     }
 }

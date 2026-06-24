@@ -18,14 +18,5 @@
         </PackageReference>
     </ItemGroup>
 
-    <ItemGroup>
-        <Content Include="Test\easy.txt" CopyToOutputDirectory="PreserveNewest"/>
-    </ItemGroup>
-
-    <ItemGroup>
-      <None Update="Test\big.txt">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      </None>
-    </ItemGroup>
 
 </Project>
