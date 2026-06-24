@@ -49,6 +49,14 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Opened += (_, _) => Scroller.Focus();
+        this.AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Key != Key.F) return;
+            if (!e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Meta)) return;
+            SearchBox.Focus();
+            SearchBox.SelectAll();
+            e.Handled = true;
+        }, RoutingStrategies.Tunnel);
         Closed += (_, _) =>
         {
             _fileHandle?.Dispose();
@@ -519,6 +527,8 @@ public partial class MainWindow : Window
 
     private async void OnSearchTextChanged(object? sender, TextChangedEventArgs e)
     {
+        SearchClearBtn.IsVisible = !string.IsNullOrEmpty(SearchBox.Text);
+
         _searchDebounceToken?.Cancel();
         _searchDebounceToken = new CancellationTokenSource();
         try
@@ -535,6 +545,12 @@ public partial class MainWindow : Window
 
     private void OnSearchNext(object? sender, RoutedEventArgs e) => NavigateSearch(+1);
     private void OnSearchPrev(object? sender, RoutedEventArgs e) => NavigateSearch(-1);
+
+    private void OnSearchClearClicked(object? sender, RoutedEventArgs e)
+    {
+        SearchBox.Text = "";
+        SearchBox.Focus();
+    }
 
     private void NavigateSearch(int direction)
     {

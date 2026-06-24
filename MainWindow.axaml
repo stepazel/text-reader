@@ -24,8 +24,17 @@
             </StackPanel>
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                <TextBox x:Name="SearchBox" Width="200" VerticalAlignment="Center" Focusable="True"
-                         PlaceholderText="Hledat..." TextChanged="OnSearchTextChanged"/>
+                <Grid Width="200" VerticalAlignment="Center">
+                    <TextBox x:Name="SearchBox" Focusable="True" Padding="6,4,26,4"
+                             PlaceholderText="Hledat..." TextChanged="OnSearchTextChanged"/>
+                    <Button x:Name="SearchClearBtn" Content="✕"
+                            IsVisible="False"
+                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Width="20" Height="20" Margin="0,0,3,0"
+                            Padding="0" Background="Transparent" BorderThickness="0"
+                            FontSize="11" Opacity="0.6"
+                            Click="OnSearchClearClicked"/>
+                </Grid>
                 <Button Content="◀" Click="OnSearchPrev"/>
                 <TextBlock x:Name="SearchStatus" Text="" VerticalAlignment="Center"
                            MinWidth="80" TextAlignment="Center"/>
