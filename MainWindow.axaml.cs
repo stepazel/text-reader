@@ -41,6 +41,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _searchCts;
     private CancellationTokenSource? _searchDebounceToken;
     private int _searchGeneration;
+    private LineItem? _lastHighlightedItem;
 
     public AvaloniaList<LineItem> Lines { get; } = [];
 
@@ -333,15 +334,39 @@ public partial class MainWindow : Window
         }
     }
 
+    private void UpdateCurrentHighlight()
+    {
+        if (_lastHighlightedItem != null)
+        {
+            _lastHighlightedItem.CurrentOccurrenceIndex = -1;
+            _lastHighlightedItem = null;
+        }
+
+        if (_currentResultIndex < 0 || _searchResults.Length == 0) return;
+
+        var docLine = _searchResults[_currentResultIndex];
+        if (docLine < _firstLoadedLine || docLine >= _firstLoadedLine + Lines.Count) return;
+
+        var occIdx = 0;
+        for (var i = _currentResultIndex - 1; i >= 0 && _searchResults[i] == docLine; i--)
+            occIdx++;
+
+        _lastHighlightedItem = Lines[(int)(docLine - _firstLoadedLine)];
+        _lastHighlightedItem.CurrentOccurrenceIndex = occIdx;
+    }
+
     private void LoadWindow(long firstLine)
     {
         firstLine = Math.Clamp(firstLine, 0, Math.Max(0, _offsets.Length - WindowSize));
         _firstLoadedLine = firstLine;
+        _lastHighlightedItem = null;
 
         Lines.Clear();
         var count = (int)Math.Min(WindowSize, _offsets.Length - firstLine);
         for (var i = 0; i < count; i++)
             Lines.Add(new LineItem(ReadLine((int)(firstLine + i)), _activeQuery));
+
+        UpdateCurrentHighlight();
     }
 
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
@@ -374,6 +399,8 @@ public partial class MainWindow : Window
             if (Lines.Count > WindowSize)
                 Lines.RemoveRange(0, changeSize);
 
+            UpdateCurrentHighlight();
+
             Dispatcher.UIThread.Post(() =>
             {
                 sv.Offset = sv.Offset.WithY(sv.Offset.Y - changeSize * lineHeight);
@@ -394,6 +421,8 @@ public partial class MainWindow : Window
             Lines.InsertRange(0, linesToAdd);
             Lines.RemoveRange(Lines.Count - changeSize, changeSize);
             _firstLoadedLine -= changeSize;
+
+            UpdateCurrentHighlight();
 
             Dispatcher.UIThread.Post(() =>
             {
@@ -530,6 +559,7 @@ public partial class MainWindow : Window
 
         if (string.IsNullOrWhiteSpace(query) || _filePath == null)
         {
+            UpdateCurrentHighlight();
             ApplySearchQuery("");
             SearchStatus.Text = "";
             SearchProgress.IsVisible = false;

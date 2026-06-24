@@ -24,7 +24,7 @@
             </StackPanel>
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                <TextBox x:Name="SearchBox" Width="200" VerticalAlignment="Center"
+                <TextBox x:Name="SearchBox" Width="200" VerticalAlignment="Center" Focusable="True"
                          PlaceholderText="Hledat..." TextChanged="OnSearchTextChanged"/>
                 <Button Content="◀" Click="OnSearchPrev"/>
                 <TextBlock x:Name="SearchStatus" Text="" VerticalAlignment="Center"
@@ -49,6 +49,7 @@
                     <DataTemplate>
                         <local:HighlightTextBlock LineText="{Binding Text}"
                                                   Query="{Binding Query}"
+                                                  CurrentOccurrenceIndex="{Binding CurrentOccurrenceIndex}"
                                                   Padding="8 4"
                                                   FontFamily="Courier New"
                                                   FontSize="13"/>
