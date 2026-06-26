@@ -51,8 +51,16 @@ public partial class MainWindow : Window
         Opened += (_, _) => Scroller.Focus();
         this.AddHandler(KeyDownEvent, (_, e) =>
         {
-            if (e.Key != Key.F) return;
-            if (!e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Meta)) return;
+            if (e.Key != Key.F)
+            {
+                return;
+            }
+
+            if (!e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Meta))
+            {
+                return;
+            }
+
             SearchBox.Focus();
             SearchBox.SelectAll();
             e.Handled = true;
@@ -61,7 +69,11 @@ public partial class MainWindow : Window
         {
             _fileHandle?.Dispose();
             _searchCts?.Cancel();
-            if (_tempFile == null) return;
+            if (_tempFile == null)
+            {
+                return;
+            }
+
             try
             {
                 File.Delete(_tempFile);
@@ -108,7 +120,7 @@ public partial class MainWindow : Window
             Height = 100,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Content = new StackPanel { Children = { progressBar, progressLabel } }
+            Content = new StackPanel { Children = { progressBar, progressLabel } },
         };
         progressWindow.Show(this);
 
@@ -135,7 +147,11 @@ public partial class MainWindow : Window
 
         Dispatcher.UIThread.Post(() =>
         {
-            if (Lines.Count == 0) return;
+            if (Lines.Count == 0)
+            {
+                return;
+            }
+
             var lineHeight = Scroller.Extent.Height / Lines.Count;
             var pageLines = (int)(Scroller.Viewport.Height / lineHeight);
             VirtualScroll.Maximum = Math.Max(0, _offsets.Length - pageLines);
@@ -152,12 +168,19 @@ public partial class MainWindow : Window
         {
             Title = "Otevřít textový soubor",
             AllowMultiple = false,
-            FileTypeFilter = [new FilePickerFileType("Textové soubory") { Patterns = ["*.txt"] }]
+            FileTypeFilter = [new FilePickerFileType("Textové soubory") { Patterns = ["*.txt"] }],
         });
 
-        if (files.Count == 0) return;
+        if (files.Count == 0)
+        {
+            return;
+        }
+
         var localPath = files[0].TryGetLocalPath();
-        if (localPath == null) return;
+        if (localPath == null)
+        {
+            return;
+        }
 
         await OpenFile(localPath);
     }
@@ -165,20 +188,23 @@ public partial class MainWindow : Window
     private async void OnOpenUrlClicked(object? sender, RoutedEventArgs e)
     {
         var url = await ShowUrlInputDialog();
-        if (string.IsNullOrWhiteSpace(url)) return;
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return;
+        }
 
         var statusLabel = new TextBlock
         {
             Text = "Stahování...",
             Margin = new Thickness(20, 20, 20, 8),
-            HorizontalAlignment = HorizontalAlignment.Center
+            HorizontalAlignment = HorizontalAlignment.Center,
         };
         var closeBtn = new Button
         {
             Content = "Zavřít",
             IsVisible = false,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 0, 0, 12)
+            Margin = new Thickness(0, 0, 0, 12),
         };
         var statusWindow = new Window
         {
@@ -187,7 +213,7 @@ public partial class MainWindow : Window
             Height = 110,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Content = new StackPanel { Children = { statusLabel, closeBtn } }
+            Content = new StackPanel { Children = { statusLabel, closeBtn } },
         };
         closeBtn.Click += (_, _) => statusWindow.Close();
         statusWindow.Show(this);
@@ -230,7 +256,7 @@ public partial class MainWindow : Window
         {
             PlaceholderText = "https://",
             Margin = new Thickness(12, 12, 12, 8),
-            MinWidth = 360
+            MinWidth = 360,
         };
 
         var okBtn = new Button { Content = "Otevřít" };
@@ -242,7 +268,7 @@ public partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(12, 0, 12, 12),
             Spacing = 8,
-            Children = { okBtn, cancelBtn }
+            Children = { okBtn, cancelBtn },
         };
 
         var dialog = new Window
@@ -252,7 +278,7 @@ public partial class MainWindow : Window
             Height = 120,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Content = new StackPanel { Children = { textBox, buttons } }
+            Content = new StackPanel { Children = { textBox, buttons } },
         };
 
         string? result = null;
@@ -269,7 +295,10 @@ public partial class MainWindow : Window
                 result = textBox.Text;
                 dialog.Close();
             }
-            else if (ke.Key == Key.Escape) dialog.Close();
+            else if (ke.Key == Key.Escape)
+            {
+                dialog.Close();
+            }
         };
 
         await dialog.ShowDialog(this);
@@ -278,7 +307,10 @@ public partial class MainWindow : Window
 
     private void NavigateTo(long docLine)
     {
-        if (Lines.Count == 0 || Scroller.Extent.Height == 0) return;
+        if (Lines.Count == 0 || Scroller.Extent.Height == 0)
+        {
+            return;
+        }
 
         var lineHeight = Scroller.Extent.Height / Lines.Count;
         docLine = Math.Clamp(docLine, 0, _offsets.Length - 1);
@@ -350,10 +382,16 @@ public partial class MainWindow : Window
             _lastHighlightedItem = null;
         }
 
-        if (_currentResultIndex < 0 || _searchResults.Length == 0) return;
+        if (_currentResultIndex < 0 || _searchResults.Length == 0)
+        {
+            return;
+        }
 
         var docLine = _searchResults[_currentResultIndex];
-        if (docLine < _firstLoadedLine || docLine >= _firstLoadedLine + Lines.Count) return;
+        if (docLine < _firstLoadedLine || docLine >= _firstLoadedLine + Lines.Count)
+        {
+            return;
+        }
 
         var occIdx = 0;
         for (var i = _currentResultIndex - 1; i >= 0 && _searchResults[i] == docLine; i--)
@@ -379,9 +417,20 @@ public partial class MainWindow : Window
 
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
-        if (e.ExtentDelta.Y != 0 || _adjustingScroll) return;
-        if (sender is not ScrollViewer sv) return;
-        if (Lines.Count == 0) return;
+        if (e.ExtentDelta.Y != 0 || _adjustingScroll)
+        {
+            return;
+        }
+
+        if (sender is not ScrollViewer sv)
+        {
+            return;
+        }
+
+        if (Lines.Count == 0)
+        {
+            return;
+        }
 
         var lineHeight = sv.Extent.Height / Lines.Count;
         var firstVisible = _firstLoadedLine + (int)(sv.Offset.Y / lineHeight);
@@ -394,7 +443,10 @@ public partial class MainWindow : Window
 
         if (lastLoaded - lastVisible <= ScrollBuffer)
         {
-            if (lastLoaded >= _offsets.Length - 1) return;
+            if (lastLoaded >= _offsets.Length - 1)
+            {
+                return;
+            }
 
             const int changeSize = 100;
             var linesToAdd = new LineItem[changeSize];
@@ -405,7 +457,9 @@ public partial class MainWindow : Window
             Lines.AddRange(linesToAdd);
             _firstLoadedLine += changeSize;
             if (Lines.Count > WindowSize)
+            {
                 Lines.RemoveRange(0, changeSize);
+            }
 
             UpdateCurrentHighlight();
 
@@ -442,7 +496,10 @@ public partial class MainWindow : Window
 
     private async void OnVirtualScrollChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
-        if (_suppressVirtualScroll) return;
+        if (_suppressVirtualScroll)
+        {
+            return;
+        }
 
         _debounceToken?.Cancel();
         _debounceToken = new CancellationTokenSource();
@@ -461,7 +518,9 @@ public partial class MainWindow : Window
     private string ReadLine(int lineIndex)
     {
         if (lineIndex < 0 || lineIndex >= _offsets.Length || _fileHandle is null)
+        {
             return string.Empty;
+        }
 
         var start = _offsets[lineIndex];
         var end = lineIndex + 1 < _offsets.Length ? _offsets[lineIndex + 1] : _fileLength;
@@ -479,7 +538,7 @@ public partial class MainWindow : Window
         var offsets = new long[capacity];
         var count = 1;
 
-        const int bufSize = 1 << 20;
+        const int bufSize = 1 << 16;//1 << 20;
         var bufA = new byte[bufSize];
         var bufB = new byte[bufSize];
 
@@ -496,7 +555,10 @@ public partial class MainWindow : Window
         while (true)
         {
             var bytesRead = readTask.GetAwaiter().GetResult();
-            if (bytesRead == 0) break;
+            if (bytesRead == 0)
+            {
+                break;
+            }
 
             readTask = stream.ReadAsync(readBuf, 0, bufSize);
 
@@ -505,7 +567,11 @@ public partial class MainWindow : Window
             while (true)
             {
                 var found = span[idx..].IndexOf((byte)'\n');
-                if (found < 0) break;
+                if (found < 0)
+                {
+                    break;
+                }
+
                 idx += found;
                 offsets[count++] = position + idx + 1;
                 idx++;
@@ -514,7 +580,9 @@ public partial class MainWindow : Window
             position += bytesRead;
 
             if (progress != null && ++reportCounter % 10 == 0)
+            {
                 progress.Report(position * 100.0 / fileLength);
+            }
 
             (processBuf, readBuf) = (readBuf, processBuf);
         }
@@ -554,7 +622,11 @@ public partial class MainWindow : Window
 
     private void NavigateSearch(int direction)
     {
-        if (_searchResults.Length == 0) return;
+        if (_searchResults.Length == 0)
+        {
+            return;
+        }
+
         _currentResultIndex = (_currentResultIndex + direction + _searchResults.Length) % _searchResults.Length;
         SearchStatus.Text = $"{_currentResultIndex + 1} z {_searchResults.Length}";
         NavigateTo(_searchResults[_currentResultIndex]);
@@ -597,7 +669,11 @@ public partial class MainWindow : Window
 
         var progress = new Progress<(double pct, int found)>(state =>
         {
-            if (_searchGeneration != generation) return;
+            if (_searchGeneration != generation)
+            {
+                return;
+            }
+
             SearchProgress.Value = state.pct;
             SearchStatus.Text = state.found > 0 ? $"... z {state.found}" : "Hledám...";
         });
@@ -611,7 +687,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (ct.IsCancellationRequested || _searchGeneration != generation) return;
+        if (ct.IsCancellationRequested || _searchGeneration != generation)
+        {
+            return;
+        }
 
         _searchResults = results.ToArray();
         _currentResultIndex = _searchResults.Length > 0 ? 0 : -1;
@@ -633,7 +712,10 @@ public partial class MainWindow : Window
         IProgress<(double pct, int found)> progress, CancellationToken ct)
     {
         var fileLength = new FileInfo(path).Length;
-        if (fileLength == 0) return;
+        if (fileLength == 0)
+        {
+            return;
+        }
 
         const int bufSize = 4 << 20;
         var buf = new byte[bufSize];
@@ -650,7 +732,11 @@ public partial class MainWindow : Window
         while (!ct.IsCancellationRequested)
         {
             var read = stream.Read(buf, 0, bufSize);
-            if (read == 0) break;
+            if (read == 0)
+            {
+                break;
+            }
+
             bytesProcessed += read;
             bufCount++;
 
@@ -664,7 +750,10 @@ public partial class MainWindow : Window
                 {
                     var rest = span[pos..];
                     if (partialLen + rest.Length > partialLine.Length)
+                    {
                         Array.Resize(ref partialLine, Math.Max(partialLine.Length * 2, partialLen + rest.Length));
+                    }
+
                     rest.CopyTo(partialLine.AsSpan(partialLen));
                     partialLen += rest.Length;
                     break;
@@ -675,7 +764,10 @@ public partial class MainWindow : Window
                 {
                     var chunk = span[pos..(pos + nl)];
                     if (partialLen + chunk.Length > partialLine.Length)
+                    {
                         Array.Resize(ref partialLine, Math.Max(partialLine.Length * 2, partialLen + chunk.Length));
+                    }
+
                     chunk.CopyTo(partialLine.AsSpan(partialLen));
                     lineText = Encoding.UTF8.GetString(partialLine, 0, partialLen + chunk.Length);
                     partialLen = 0;
@@ -689,7 +781,11 @@ public partial class MainWindow : Window
                 while (true)
                 {
                     var matchIdx = lineText.IndexOf(query, searchFrom, StringComparison.OrdinalIgnoreCase);
-                    if (matchIdx < 0) break;
+                    if (matchIdx < 0)
+                    {
+                        break;
+                    }
+
                     results.Add(lineNumber);
                     searchFrom = matchIdx + query.Length;
                 }
@@ -712,7 +808,11 @@ public partial class MainWindow : Window
             while (true)
             {
                 var matchIdx = lineText.IndexOf(query, searchFrom, StringComparison.OrdinalIgnoreCase);
-                if (matchIdx < 0) break;
+                if (matchIdx < 0)
+                {
+                    break;
+                }
+
                 results.Add(lineNumber);
                 searchFrom = matchIdx + query.Length;
             }
