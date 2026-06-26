@@ -337,6 +337,15 @@ public partial class MainWindow : Window
         }, DispatcherPriority.Loaded);
     }
 
+    private void GoTo(long docLine)
+    {
+        docLine = Math.Clamp(docLine, 0, Math.Max(0, _offsets.Length - 1));
+        if (docLine >= _firstLoadedLine && docLine < _firstLoadedLine + Lines.Count)
+            SmoothScrollTo(Scroller, (docLine - _firstLoadedLine) * (Scroller.Extent.Height / Lines.Count));
+        else
+            NavigateTo(docLine);
+    }
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (Lines.Count == 0 || Scroller.Extent.Height == 0)
@@ -366,13 +375,11 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.Home:
-                // SmoothScrollTo(Scroller, 0);
-                NavigateTo(0);
+                GoTo(0);
                 e.Handled = true;
                 break;
             case Key.End:
-                // SmoothScrollTo(Scroller, Math.Max(0, _offsets.Length - (int)(Scroller.Viewport.Height / lineHeight)));
-                NavigateTo(Math.Max(0, _offsets.Length - (int)(Scroller.Viewport.Height / lineHeight)));
+                GoTo(Math.Max(0, _offsets.Length - (int)(Scroller.Viewport.Height / lineHeight)));
                 e.Handled = true;
                 break;
             case Key.F3:
