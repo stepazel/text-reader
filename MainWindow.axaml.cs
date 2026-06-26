@@ -45,6 +45,7 @@ public partial class MainWindow : Window
     private LineItem? _lastHighlightedItem;
     
     private CancellationTokenSource? _scrollCts;
+    private bool _isDraggingVirtualScroll;
 
 
     public AvaloniaList<LineItem> Lines { get; } = [];
@@ -58,6 +59,20 @@ public partial class MainWindow : Window
             KeyDownEvent,
             (_, e) => OnKeyDown(e),
             RoutingStrategies.Tunnel);
+        VirtualScroll.AddHandler(Thumb.DragStartedEvent, (_, _) =>
+        {
+            if (_offsets.Length <= WindowSize) return;
+            _isDraggingVirtualScroll = true;
+            _debounceToken?.Cancel();
+            _scrollCts?.Cancel();
+        }, RoutingStrategies.Bubble);
+        VirtualScroll.AddHandler(Thumb.DragCompletedEvent, (_, _) =>
+        {
+            if (!_isDraggingVirtualScroll) return;
+            _isDraggingVirtualScroll = false;
+            ScrollHint.IsVisible = false;
+            GoTo((long)VirtualScroll.Value);
+        }, RoutingStrategies.Bubble);
         this.AddHandler(KeyDownEvent, (_, e) =>
         {
             if (e.Key != Key.F)
@@ -609,8 +624,28 @@ public partial class MainWindow : Window
 
     private async void OnVirtualScrollChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
-        if (_suppressVirtualScroll)
+        if (_suppressVirtualScroll) return;
+
+        if (_offsets.Length > 0 && _offsets.Length <= WindowSize)
         {
+            if (Lines.Count == 0 || Scroller.Extent.Height == 0) return;
+            var lineHeight = Scroller.Extent.Height / Lines.Count;
+            _adjustingScroll = true;
+            Scroller.Offset = Scroller.Offset.WithY(e.NewValue * lineHeight);
+            Dispatcher.UIThread.Post(() => _adjustingScroll = false, DispatcherPriority.Loaded);
+            return;
+        }
+
+        if (_isDraggingVirtualScroll)
+        {
+            var line = (long)e.NewValue;
+            var pct = _offsets.Length > 0 ? line * 100.0 / _offsets.Length : 0;
+            ScrollHintText.Text = $"Řádek {line + 1}  ({pct:0.0} %)";
+            var hintY = VirtualScroll.Maximum > 0
+                ? e.NewValue / VirtualScroll.Maximum * Math.Max(0, VirtualScroll.Bounds.Height - 40)
+                : 0;
+            ScrollHint.Margin = new Thickness(0, hintY, 4, 0);
+            ScrollHint.IsVisible = true;
             return;
         }
 
@@ -625,7 +660,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        NavigateTo((long)e.NewValue);
+        GoTo((long)e.NewValue);
     }
 
     private string ReadLine(int lineIndex)
