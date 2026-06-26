@@ -22,6 +22,7 @@
                 <Button Content="Otevřít" Click="OnOpenFileClicked"/>
                 <Button Content="Otevřít z URL" Click="OnOpenUrlClicked"/>
                 <Button Content="Generovat" Click="OnGenerateClicked"/>
+                <Button x:Name="SaveButton" Content="Uložit" Click="OnSaveClicked" IsVisible="False"/>
             </StackPanel>
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">

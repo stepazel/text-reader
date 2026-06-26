@@ -26,11 +26,14 @@ public partial class MainWindow : Window
     private const int WindowSize = 500;
     private const int ScrollBuffer = 100;
 
+    private enum FileSource { FileSystem, Url, Generated }
+
     private long[] _offsets = [];
     private long _fileLength;
     private SafeFileHandle? _fileHandle;
     private string? _tempFile;
     private string? _filePath;
+    private FileSource _fileSource;
     private long _firstLoadedLine;
     private bool _adjustingScroll;
     private bool _suppressVirtualScroll;
@@ -110,7 +113,7 @@ public partial class MainWindow : Window
         DataContext = this;
     }
 
-    private async Task OpenFile(string path, bool isTempFile = false)
+    private async Task OpenFile(string path, FileSource source = FileSource.FileSystem)
     {
         _searchCts?.Cancel();
         _searchResults = [];
@@ -131,7 +134,8 @@ public partial class MainWindow : Window
             }
         }
 
-        _tempFile = isTempFile ? path : null;
+        _fileSource = source;
+        _tempFile = source != FileSource.FileSystem ? path : null;
 
         var progressBar = new ProgressBar
             { Minimum = 0, Maximum = 100, Value = 0, Width = 260, Margin = new Thickness(16, 16, 16, 8) };
@@ -183,6 +187,7 @@ public partial class MainWindow : Window
             VirtualScroll.LargeChange = pageLines;
             VirtualScroll.ViewportSize = pageLines;
             VirtualScroll.Value = 0;
+            SaveButton.IsVisible = _tempFile != null;
         }, DispatcherPriority.Loaded);
     }
 
@@ -265,7 +270,7 @@ public partial class MainWindow : Window
             var tempPath = Path.GetTempFileName();
             await File.WriteAllTextAsync(tempPath, content);
             statusWindow.Close();
-            await OpenFile(tempPath, isTempFile: true);
+            await OpenFile(tempPath, FileSource.Url);
         }
         catch
         {
@@ -370,7 +375,52 @@ public partial class MainWindow : Window
         }
 
         progressWindow.Close();
-        await OpenFile(tempPath, isTempFile: true);
+        await OpenFile(tempPath, FileSource.Generated);
+    }
+
+    private async void OnSaveClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_filePath == null) return;
+
+        var suggestedName = _fileSource == FileSource.Generated ? "generated.txt" : "downloaded.txt";
+
+        var dest = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Uložit soubor",
+            SuggestedFileName = suggestedName,
+            FileTypeChoices = [new FilePickerFileType("Textový soubor") { Patterns = ["*.txt"] }],
+        });
+
+        if (dest?.TryGetLocalPath() is not { } destPath) return;
+
+        try
+        {
+            File.Copy(_filePath, destPath, overwrite: true);
+        }
+        catch (Exception ex)
+        {
+            var errWindow = new Window
+            {
+                Title = "Chyba",
+                Width = 340,
+                Height = 110,
+                CanResize = false,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Content = new StackPanel
+                {
+                    Margin = new Thickness(16),
+                    Spacing = 12,
+                    Children =
+                    {
+                        new TextBlock { Text = $"Nepodařilo se uložit soubor: {ex.Message}", TextWrapping = Avalonia.Media.TextWrapping.Wrap },
+                        new Button { Content = "OK", HorizontalAlignment = HorizontalAlignment.Right },
+                    },
+                },
+            };
+            var okBtn = (Button)((StackPanel)errWindow.Content!).Children[1];
+            okBtn.Click += (_, _) => errWindow.Close();
+            await errWindow.ShowDialog(this);
+        }
     }
 
     private static readonly string[] LoremWords =
