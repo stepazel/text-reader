@@ -506,6 +506,7 @@ public partial class MainWindow : Window
             for (var i = 0; i < changeSize; i++)
                 linesToAdd[i] = new LineItem(ReadLine((int)(lastLoaded + 1 + i)), _activeQuery);
 
+            _scrollCts?.Cancel();
             _adjustingScroll = true;
             Lines.AddRange(linesToAdd);
             var removedFromTop = Lines.Count > WindowSize;
@@ -534,6 +535,7 @@ public partial class MainWindow : Window
             for (var i = 0; i < changeSize; i++)
                 linesToAdd[i] = new LineItem(ReadLine((int)(_firstLoadedLine - changeSize + i)), _activeQuery);
 
+            _scrollCts?.Cancel();
             _adjustingScroll = true;
             Lines.InsertRange(0, linesToAdd);
             Lines.RemoveRange(Lines.Count - changeSize, changeSize);
