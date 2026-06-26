@@ -776,6 +776,8 @@ public partial class MainWindow : Window
             return;
         }
 
+        LineNumberScroller.Offset = LineNumberScroller.Offset.WithY(sv.Offset.Y);
+
         var lineHeight = sv.Extent.Height / Lines.Count;
         var firstVisible = _firstLoadedLine + (int)(sv.Offset.Y / lineHeight);
         var lastVisible = firstVisible + (int)(sv.Viewport.Height / lineHeight);
@@ -1019,9 +1021,8 @@ public partial class MainWindow : Window
             if (idx < 0) return 0;
             if (found == occIdx)
             {
-                const double lineNumberWidth = 72.0;
                 var cw = GetCharWidth();
-                var matchStartX = lineNumberWidth + idx * cw;
+                var matchStartX = idx * cw;
                 var matchWidth = _activeQuery.Length * cw;
                 var centerX = matchStartX - (Scroller.Viewport.Width - matchWidth) / 2;
                 return Math.Max(0, centerX);
