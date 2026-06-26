@@ -57,8 +57,7 @@ public partial class MainWindow : Window
         Scroller.AddHandler(
             KeyDownEvent,
             (_, e) => OnKeyDown(e),
-            RoutingStrategies.Bubble,
-            handledEventsToo: true);
+            RoutingStrategies.Tunnel);
         this.AddHandler(KeyDownEvent, (_, e) =>
         {
             if (e.Key != Key.F)
@@ -367,13 +366,13 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.Home:
-                SmoothScrollTo(Scroller, 0);
-                // NavigateTo(0);
+                // SmoothScrollTo(Scroller, 0);
+                NavigateTo(0);
                 e.Handled = true;
                 break;
             case Key.End:
-                SmoothScrollTo(Scroller, Math.Max(0, _offsets.Length - (int)(Scroller.Viewport.Height / lineHeight)));
-                // NavigateTo(Math.Max(0, _offsets.Length - (int)(Scroller.Viewport.Height / lineHeight)));
+                // SmoothScrollTo(Scroller, Math.Max(0, _offsets.Length - (int)(Scroller.Viewport.Height / lineHeight)));
+                NavigateTo(Math.Max(0, _offsets.Length - (int)(Scroller.Viewport.Height / lineHeight)));
                 e.Handled = true;
                 break;
             case Key.F3:
@@ -509,17 +508,19 @@ public partial class MainWindow : Window
 
             _adjustingScroll = true;
             Lines.AddRange(linesToAdd);
-            _firstLoadedLine += changeSize;
-            if (Lines.Count > WindowSize)
+            var removedFromTop = Lines.Count > WindowSize;
+            if (removedFromTop)
             {
                 Lines.RemoveRange(0, changeSize);
+                _firstLoadedLine += changeSize;
             }
 
             UpdateCurrentHighlight();
 
             Dispatcher.UIThread.Post(() =>
             {
-                sv.Offset = sv.Offset.WithY(sv.Offset.Y - changeSize * lineHeight);
+                if (removedFromTop)
+                    sv.Offset = sv.Offset.WithY(sv.Offset.Y - changeSize * lineHeight);
                 _adjustingScroll = false;
             }, DispatcherPriority.Loaded);
             return;
