@@ -274,6 +274,141 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OnGenerateClicked(object? sender, RoutedEventArgs e)
+    {
+        var lineCountBox = new TextBox
+        {
+            Text = "500000",
+            Margin = new Thickness(12, 12, 12, 8),
+            MinWidth = 200,
+        };
+
+        var okBtn = new Button { Content = "Generovat" };
+        var cancelBtn = new Button { Content = "Zrušit" };
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(12, 0, 12, 12),
+            Spacing = 8,
+            Children = { okBtn, cancelBtn },
+        };
+
+        var dialog = new Window
+        {
+            Title = "Generovat lorem ipsum",
+            Width = 280,
+            Height = 120,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock { Text = "Počet řádků:", Margin = new Thickness(12, 12, 12, 0) },
+                    lineCountBox,
+                    buttons,
+                },
+            },
+        };
+
+        int? lineCount = null;
+        okBtn.Click += (_, _) =>
+        {
+            if (int.TryParse(lineCountBox.Text, out var n) && n > 0)
+            {
+                lineCount = n;
+                dialog.Close();
+            }
+        };
+        cancelBtn.Click += (_, _) => dialog.Close();
+        lineCountBox.KeyDown += (_, ke) =>
+        {
+            if (ke.Key != Key.Enter) return;
+            if (int.TryParse(lineCountBox.Text, out var n) && n > 0)
+            {
+                lineCount = n;
+                dialog.Close();
+            }
+        };
+
+        await dialog.ShowDialog(this);
+        if (lineCount is not { } count) return;
+
+        var progressBar = new ProgressBar
+            { Minimum = 0, Maximum = 100, Value = 0, Width = 260, Margin = new Thickness(16, 16, 16, 8) };
+        var progressLabel = new TextBlock
+            { Text = "0 %", HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 16) };
+        var progressWindow = new Window
+        {
+            Title = "Generování...",
+            Width = 300,
+            Height = 100,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel { Children = { progressBar, progressLabel } },
+        };
+        progressWindow.Show(this);
+
+        var progress = new Progress<double>(pct =>
+        {
+            progressBar.Value = pct;
+            progressLabel.Text = $"{pct:0} %";
+        });
+
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            await Task.Run(() => GenerateLoremIpsum(tempPath, count, progress));
+        }
+        catch
+        {
+            progressWindow.Close();
+            try { File.Delete(tempPath); } catch { /* ignore */ }
+            return;
+        }
+
+        progressWindow.Close();
+        await OpenFile(tempPath, isTempFile: true);
+    }
+
+    private static readonly string[] LoremWords =
+    [
+        "lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit",
+        "sed", "do", "eiusmod", "tempor", "incididunt", "ut", "labore", "et", "dolore",
+        "magna", "aliqua", "enim", "ad", "minim", "veniam", "quis", "nostrud",
+        "exercitation", "ullamco", "laboris", "nisi", "aliquip", "ex", "ea", "commodo",
+        "consequat", "duis", "aute", "irure", "reprehenderit", "voluptate", "velit",
+        "esse", "cillum", "fugiat", "nulla", "pariatur", "excepteur", "sint", "occaecat",
+        "cupidatat", "non", "proident", "sunt", "culpa", "qui", "officia", "deserunt",
+        "mollit", "anim", "id", "est", "laborum",
+    ];
+
+    private static void GenerateLoremIpsum(string path, int lineCount, IProgress<double> progress)
+    {
+        var rng = new Random();
+        const int bufSize = 1 << 16;
+        using var writer = new StreamWriter(path, append: false, Encoding.UTF8, bufSize);
+
+        for (var i = 1; i <= lineCount; i++)
+        {
+            writer.Write(i);
+            writer.Write(": ");
+            var wordCount = rng.Next(5, 16);
+            for (var w = 0; w < wordCount; w++)
+            {
+                if (w > 0) writer.Write(' ');
+                writer.Write(LoremWords[rng.Next(LoremWords.Length)]);
+            }
+            writer.WriteLine();
+
+            if (i % 10000 == 0)
+                progress.Report(i * 100.0 / lineCount);
+        }
+        progress.Report(100);
+    }
+
     private async Task<string?> ShowUrlInputDialog()
     {
         var textBox = new TextBox
