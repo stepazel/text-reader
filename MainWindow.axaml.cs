@@ -71,7 +71,7 @@ public partial class MainWindow : Window
             if (!_isDraggingVirtualScroll) return;
             _isDraggingVirtualScroll = false;
             ScrollHint.IsVisible = false;
-            GoTo((long)VirtualScroll.Value);
+            NavigateTo((long)VirtualScroll.Value);
         }, RoutingStrategies.Bubble);
         this.AddHandler(KeyDownEvent, (_, e) =>
         {
@@ -539,9 +539,33 @@ public partial class MainWindow : Window
         UpdateCurrentHighlight();
     }
 
+    private void LoadDragView(long firstLine)
+    {
+        firstLine = Math.Clamp(firstLine, 0, Math.Max(0, _offsets.Length - 1));
+        if (firstLine == _firstLoadedLine && Lines.Count > 0) return;
+
+        _firstLoadedLine = firstLine;
+        _lastHighlightedItem = null;
+
+        var visibleCount = Math.Max(1, (int)VirtualScroll.ViewportSize) + 2;
+        var count = (int)Math.Min(visibleCount, _offsets.Length - firstLine);
+        var items = new LineItem[count];
+        for (var i = 0; i < count; i++)
+            items[i] = new LineItem(ReadLine((int)(firstLine + i)), _activeQuery);
+
+        _adjustingScroll = true;
+        Lines.Clear();
+        Lines.AddRange(items);
+        Dispatcher.UIThread.Post(() =>
+        {
+            Scroller.Offset = Vector.Zero;
+            _adjustingScroll = false;
+        }, DispatcherPriority.Loaded);
+    }
+
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
-        if (e.ExtentDelta.Y != 0 || _adjustingScroll)
+        if (e.ExtentDelta.Y != 0 || _adjustingScroll || _isDraggingVirtualScroll)
         {
             return;
         }
@@ -646,6 +670,7 @@ public partial class MainWindow : Window
                 : 0;
             ScrollHint.Margin = new Thickness(0, hintY, 4, 0);
             ScrollHint.IsVisible = true;
+            LoadDragView(line);
             return;
         }
 
