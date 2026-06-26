@@ -16,6 +16,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Platform.Storage;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Microsoft.Win32.SafeHandles;
 
@@ -49,6 +50,7 @@ public partial class MainWindow : Window
     
     private CancellationTokenSource? _scrollCts;
     private bool _isDraggingVirtualScroll;
+    private double _charWidth;
 
 
     public AvaloniaList<LineItem> Lines { get; } = [];
@@ -523,7 +525,7 @@ public partial class MainWindow : Window
         return result;
     }
 
-    private void NavigateTo(long docLine)
+    private void NavigateTo(long docLine, double targetX = 0)
     {
         if (Lines.Count == 0 || Scroller.Extent.Height == 0)
         {
@@ -538,7 +540,7 @@ public partial class MainWindow : Window
         _adjustingScroll = true;
         Dispatcher.UIThread.Post(() =>
         {
-            Scroller.Offset = new Vector(0, lineInBuffer * lineHeight);
+            Scroller.Offset = new Vector(targetX, lineInBuffer * lineHeight);
             _adjustingScroll = false;
             _suppressVirtualScroll = true;
             VirtualScroll.Value = docLine;
@@ -996,7 +998,51 @@ public partial class MainWindow : Window
 
         _currentResultIndex = (_currentResultIndex + direction + _searchResults.Length) % _searchResults.Length;
         SearchStatus.Text = $"{_currentResultIndex + 1} z {_searchResults.Length}";
-        NavigateTo(_searchResults[_currentResultIndex]);
+        var docLine = _searchResults[_currentResultIndex];
+        NavigateTo(docLine, ComputeMatchScrollX(docLine));
+    }
+
+    private double ComputeMatchScrollX(long docLine)
+    {
+        if (string.IsNullOrEmpty(_activeQuery)) return 0;
+
+        var occIdx = 0;
+        for (var i = _currentResultIndex - 1; i >= 0 && _searchResults[i] == docLine; i--)
+            occIdx++;
+
+        var lineText = ReadLine((int)docLine);
+        var charPos = 0;
+        var found = 0;
+        while (true)
+        {
+            var idx = lineText.IndexOf(_activeQuery, charPos, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) return 0;
+            if (found == occIdx)
+            {
+                const double lineNumberWidth = 72.0;
+                var cw = GetCharWidth();
+                var matchStartX = lineNumberWidth + idx * cw;
+                var matchWidth = _activeQuery.Length * cw;
+                var centerX = matchStartX - (Scroller.Viewport.Width - matchWidth) / 2;
+                return Math.Max(0, centerX);
+            }
+            found++;
+            charPos = idx + _activeQuery.Length;
+        }
+    }
+
+    private double GetCharWidth()
+    {
+        if (_charWidth > 0) return _charWidth;
+        var ft = new FormattedText(
+            "X",
+            System.Globalization.CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Courier New"),
+            13,
+            Brushes.Black);
+        _charWidth = ft.Width;
+        return _charWidth;
     }
 
     private void ApplySearchQuery(string query)
