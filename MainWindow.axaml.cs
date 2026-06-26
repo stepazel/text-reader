@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Animation.Easings;
 using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -42,6 +43,9 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _searchDebounceToken;
     private int _searchGeneration;
     private LineItem? _lastHighlightedItem;
+    
+    private CancellationTokenSource? _scrollCts;
+
 
     public AvaloniaList<LineItem> Lines { get; } = [];
 
@@ -49,6 +53,12 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Opened += (_, _) => Scroller.Focus();
+        
+        Scroller.AddHandler(
+            KeyDownEvent,
+            (_, e) => OnKeyDown(e),
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
         this.AddHandler(KeyDownEvent, (_, e) =>
         {
             if (e.Key != Key.F)
@@ -349,19 +359,21 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.PageDown:
-                Scroller.Offset = Scroller.Offset.WithY(Scroller.Offset.Y + Scroller.Viewport.Height);
+                SmoothScrollTo(Scroller, Scroller.Offset.Y + Scroller.Viewport.Height);
                 e.Handled = true;
                 break;
             case Key.PageUp:
-                Scroller.Offset = Scroller.Offset.WithY(Scroller.Offset.Y - Scroller.Viewport.Height);
+                SmoothScrollTo(Scroller, Scroller.Offset.Y - Scroller.Viewport.Height);
                 e.Handled = true;
                 break;
             case Key.Home:
-                NavigateTo(0);
+                SmoothScrollTo(Scroller, 0);
+                // NavigateTo(0);
                 e.Handled = true;
                 break;
             case Key.End:
-                NavigateTo(Math.Max(0, _offsets.Length - (int)(Scroller.Viewport.Height / lineHeight)));
+                SmoothScrollTo(Scroller, Math.Max(0, _offsets.Length - (int)(Scroller.Viewport.Height / lineHeight)));
+                // NavigateTo(Math.Max(0, _offsets.Length - (int)(Scroller.Viewport.Height / lineHeight)));
                 e.Handled = true;
                 break;
             case Key.F3:
@@ -373,6 +385,48 @@ public partial class MainWindow : Window
                 break;
         }
     }
+    
+    private void SmoothScrollTo(ScrollViewer sv, double targetY)
+    {
+        _scrollCts?.Cancel();
+        _scrollCts = new CancellationTokenSource();
+        var token = _scrollCts.Token;
+
+        var startY = sv.Offset.Y;
+        var endY = Math.Clamp(targetY, 0, sv.ScrollBarMaximum.Y);
+        if (Math.Abs(endY - startY) < 1) return;
+
+        var sw = Stopwatch.StartNew();
+        const double durationMs = 350;
+        var easing = new CubicEaseOut();
+
+        var timer = new DispatcherTimer(DispatcherPriority.Render)
+        {
+            Interval = TimeSpan.FromMilliseconds(16)
+        };
+
+        timer.Tick += (_, _) =>
+        {
+            if (token.IsCancellationRequested)
+            {
+                timer.Stop();
+                return;
+            }
+
+            var progress = sw.Elapsed.TotalMilliseconds / durationMs;
+            if (progress >= 1.0)
+            {
+                sv.Offset = new Vector(sv.Offset.X, endY);
+                timer.Stop();
+                return;
+            }
+
+            sv.Offset = new Vector(sv.Offset.X, startY + (endY - startY) * easing.Ease(progress));
+        };
+
+        timer.Start();
+    }
+
 
     private void UpdateCurrentHighlight()
     {
