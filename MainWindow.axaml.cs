@@ -337,13 +337,62 @@ public partial class MainWindow : Window
         }, DispatcherPriority.Loaded);
     }
 
-    private void GoTo(long docLine)
+    private async void GoTo(long docLine)
     {
         docLine = Math.Clamp(docLine, 0, Math.Max(0, _offsets.Length - 1));
         if (docLine >= _firstLoadedLine && docLine < _firstLoadedLine + Lines.Count)
+        {
             SmoothScrollTo(Scroller, (docLine - _firstLoadedLine) * (Scroller.Extent.Height / Lines.Count));
-        else
+            return;
+        }
+
+        _scrollCts?.Cancel();
+        _scrollCts = new CancellationTokenSource();
+        var token = _scrollCts.Token;
+
+        try
+        {
+            var scrollbarTask = AnimateScrollBar(VirtualScroll.Value, docLine, 210, token);
+            await AnimateOpacity(Scroller, 1.0, 0.0, 150, token);
             NavigateTo(docLine);
+            await Task.WhenAll(Task.Delay(60, token), scrollbarTask);
+            await AnimateOpacity(Scroller, 0.0, 1.0, 200, token);
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            Scroller.Opacity = 1.0;
+        }
+    }
+
+    private async Task AnimateScrollBar(double from, double to, int durationMs, CancellationToken token)
+    {
+        var sw = Stopwatch.StartNew();
+        var easing = new CubicEaseInOut();
+        while (sw.ElapsedMilliseconds < durationMs)
+        {
+            var t = sw.ElapsedMilliseconds / (double)durationMs;
+            _suppressVirtualScroll = true;
+            VirtualScroll.Value = from + (to - from) * easing.Ease(t);
+            _suppressVirtualScroll = false;
+            await Task.Delay(16, token);
+        }
+        _suppressVirtualScroll = true;
+        VirtualScroll.Value = to;
+        _suppressVirtualScroll = false;
+    }
+
+    private static async Task AnimateOpacity(Control control, double from, double to, int durationMs, CancellationToken token)
+    {
+        var sw = Stopwatch.StartNew();
+        var easing = new CubicEaseOut();
+        while (sw.ElapsedMilliseconds < durationMs)
+        {
+            var t = sw.ElapsedMilliseconds / (double)durationMs;
+            control.Opacity = from + (to - from) * easing.Ease(t);
+            await Task.Delay(16, token);
+        }
+        control.Opacity = to;
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
