@@ -57,6 +57,15 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Opened += (_, _) => Scroller.Focus();
+        NavigateToLineBox.KeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter) return;
+            if (long.TryParse(NavigateToLineBox.Text, out var line) && line >= 1 && _offsets.Length > 0)
+                NavigateTo(Math.Min(line - 1, _offsets.Length - 1));
+            NavigateToLineBox.Text = "";
+            Scroller.Focus();
+            e.Handled = true;
+        };
         
         Scroller.AddHandler(
             KeyDownEvent,
@@ -719,7 +728,7 @@ public partial class MainWindow : Window
         Lines.Clear();
         var count = (int)Math.Min(WindowSize, _offsets.Length - firstLine);
         for (var i = 0; i < count; i++)
-            Lines.Add(new LineItem(ReadLine((int)(firstLine + i)), _activeQuery));
+            Lines.Add(new LineItem(ReadLine((int)(firstLine + i)), _activeQuery, firstLine + i));
 
         UpdateCurrentHighlight();
     }
@@ -736,7 +745,7 @@ public partial class MainWindow : Window
         var count = (int)Math.Min(visibleCount, _offsets.Length - firstLine);
         var items = new LineItem[count];
         for (var i = 0; i < count; i++)
-            items[i] = new LineItem(ReadLine((int)(firstLine + i)), _activeQuery);
+            items[i] = new LineItem(ReadLine((int)(firstLine + i)), _activeQuery, firstLine + i);
 
         _adjustingScroll = true;
         Lines.Clear();
@@ -784,7 +793,7 @@ public partial class MainWindow : Window
             const int changeSize = 100;
             var linesToAdd = new LineItem[changeSize];
             for (var i = 0; i < changeSize; i++)
-                linesToAdd[i] = new LineItem(ReadLine((int)(lastLoaded + 1 + i)), _activeQuery);
+                linesToAdd[i] = new LineItem(ReadLine((int)(lastLoaded + 1 + i)), _activeQuery, lastLoaded + 1 + i);
 
             _scrollCts?.Cancel();
             _adjustingScroll = true;
@@ -813,7 +822,7 @@ public partial class MainWindow : Window
             const int changeSize = 100;
             var linesToAdd = new LineItem[changeSize];
             for (var i = 0; i < changeSize; i++)
-                linesToAdd[i] = new LineItem(ReadLine((int)(_firstLoadedLine - changeSize + i)), _activeQuery);
+                linesToAdd[i] = new LineItem(ReadLine((int)(_firstLoadedLine - changeSize + i)), _activeQuery, _firstLoadedLine - changeSize + i);
 
             _scrollCts?.Cancel();
             _adjustingScroll = true;

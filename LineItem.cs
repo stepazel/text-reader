@@ -8,6 +8,7 @@ public class LineItem : INotifyPropertyChanged
     private int _currentOccurrenceIndex = -1;
 
     public string Text { get; }
+    public string LineNumberText { get; }
 
     public string Query
     {
@@ -34,9 +35,10 @@ public class LineItem : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public LineItem(string text, string query = "")
+    public LineItem(string text, string query, long lineNumber)
     {
         Text = text;
         _query = query;
+        LineNumberText = (lineNumber + 1).ToString();
     }
 }

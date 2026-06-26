@@ -41,6 +41,11 @@
                 <TextBlock x:Name="SearchStatus" Text="" VerticalAlignment="Center"
                            MinWidth="80" TextAlignment="Center"/>
                 <Button Content="▶" Click="OnSearchNext"/>
+                <TextBox x:Name="NavigateToLineBox"
+                         PlaceholderText="Řádek…"
+                         Width="90"
+                         Padding="6,4"
+                         Margin="8,0,0,0"/>
             </StackPanel>
         </Grid>
 
@@ -58,12 +63,22 @@
             <ItemsControl ItemsSource="{Binding Lines}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <local:HighlightTextBlock LineText="{Binding Text}"
-                                                  Query="{Binding Query}"
-                                                  CurrentOccurrenceIndex="{Binding CurrentOccurrenceIndex}"
-                                                  Padding="8 4"
-                                                  FontFamily="Courier New"
-                                                  FontSize="13"/>
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Left"
+                                       Text="{Binding LineNumberText}"
+                                       Width="72"
+                                       TextAlignment="Right"
+                                       Foreground="#888888"
+                                       Padding="0,4,12,4"
+                                       FontFamily="Courier New"
+                                       FontSize="13"/>
+                            <local:HighlightTextBlock LineText="{Binding Text}"
+                                                      Query="{Binding Query}"
+                                                      CurrentOccurrenceIndex="{Binding CurrentOccurrenceIndex}"
+                                                      Padding="0,4,8,4"
+                                                      FontFamily="Courier New"
+                                                      FontSize="13"/>
+                        </DockPanel>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
