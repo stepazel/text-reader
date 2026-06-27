@@ -999,7 +999,8 @@ public partial class MainWindow : Window
         }
 
         _currentResultIndex = (_currentResultIndex + direction + _searchResults.Length) % _searchResults.Length;
-        SearchStatus.Text = $"{_currentResultIndex + 1} z {_searchResults.Length}";
+        var searching = SearchProgress.IsVisible ? " ..." : "";
+        SearchStatus.Text = $"{_currentResultIndex + 1} z {_searchResults.Length}{searching}";
         var docLine = _searchResults[_currentResultIndex];
         NavigateTo(docLine, ComputeMatchScrollX(docLine));
     }
@@ -1081,15 +1082,15 @@ public partial class MainWindow : Window
         var path = _filePath;
         var results = new List<long>();
 
-        var progress = new Progress<(double pct, int found)>(state =>
+        var progress = new Progress<(double pct, long[]? snapshot)>(state =>
         {
-            if (_searchGeneration != generation)
-            {
-                return;
-            }
-
+            if (_searchGeneration != generation) return;
             SearchProgress.Value = state.pct;
-            SearchStatus.Text = state.found > 0 ? $"... z {state.found}" : "Hledám...";
+            if (state.snapshot == null) return;
+            _searchResults = state.snapshot;
+            SearchStatus.Text = _currentResultIndex >= 0
+                ? $"{_currentResultIndex + 1} z {state.snapshot.Length} ..."
+                : (state.snapshot.Length > 0 ? $"... z {state.snapshot.Length}" : "Hledám...");
         });
 
         try
@@ -1101,29 +1102,32 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (ct.IsCancellationRequested || _searchGeneration != generation)
-        {
-            return;
-        }
+        if (ct.IsCancellationRequested || _searchGeneration != generation) return;
 
         _searchResults = results.ToArray();
-        _currentResultIndex = _searchResults.Length > 0 ? 0 : -1;
         SearchProgress.IsVisible = false;
 
         if (_searchResults.Length == 0)
         {
+            _currentResultIndex = -1;
             SearchStatus.Text = "Nenalezeno";
+        }
+        else if (_currentResultIndex < 0)
+        {
+            _currentResultIndex = 0;
+            SearchStatus.Text = $"1 z {_searchResults.Length}";
+            NavigateTo(_searchResults[0], ComputeMatchScrollX(_searchResults[0]));
         }
         else
         {
-            SearchStatus.Text = $"1 z {_searchResults.Length}";
-            NavigateTo(_searchResults[0]);
+            _currentResultIndex = Math.Min(_currentResultIndex, _searchResults.Length - 1);
+            SearchStatus.Text = $"{_currentResultIndex + 1} z {_searchResults.Length}";
         }
     }
 
     private static void SearchInFile(
         string path, string query, List<long> results,
-        IProgress<(double pct, int found)> progress, CancellationToken ct)
+        IProgress<(double pct, long[]? snapshot)> progress, CancellationToken ct)
     {
         var fileLength = new FileInfo(path).Length;
         if (fileLength == 0)
@@ -1210,7 +1214,8 @@ public partial class MainWindow : Window
 
             if (bufCount % 4 == 0 || results.Count > lastReportedCount)
             {
-                progress.Report((bytesProcessed * 100.0 / fileLength, results.Count));
+                long[]? snapshot = results.Count > lastReportedCount ? results.ToArray() : null;
+                progress.Report((bytesProcessed * 100.0 / fileLength, snapshot));
                 lastReportedCount = results.Count;
             }
         }
@@ -1232,6 +1237,6 @@ public partial class MainWindow : Window
             }
         }
 
-        progress.Report((100.0, results.Count));
+        progress.Report((100.0, null));
     }
 }
