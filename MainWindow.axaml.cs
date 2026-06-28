@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Buffers;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -1331,6 +1332,10 @@ public partial class MainWindow : Window
         int bufCount = 0;
         int lastReportedCount = -1;
 
+        // ASCII query: search raw bytes, no UTF-8 decoding per line.
+        // Non-ASCII (e.g. Czech diacritics): decode into a pooled char buffer.
+        var asciiQuery = IsAsciiString(query) ? Encoding.ASCII.GetBytes(query.ToLowerInvariant()) : null;
+
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
             FileShare.Read, bufSize, FileOptions.SequentialScan);
 
@@ -1364,7 +1369,7 @@ public partial class MainWindow : Window
                     break;
                 }
 
-                string lineText;
+                ReadOnlySpan<byte> lineBytes;
                 if (partialLen > 0)
                 {
                     var chunk = span[pos..(pos + nl)];
@@ -1374,32 +1379,21 @@ public partial class MainWindow : Window
                     }
 
                     chunk.CopyTo(partialLine.AsSpan(partialLen));
-                    lineText = Encoding.UTF8.GetString(partialLine, 0, partialLen + chunk.Length);
+                    lineBytes = partialLine.AsSpan(0, partialLen + chunk.Length);
                     partialLen = 0;
                 }
                 else
                 {
-                    lineText = Encoding.UTF8.GetString(span[pos..(pos + nl)]);
+                    lineBytes = span[pos..(pos + nl)];
                 }
 
-                var searchFrom = 0;
-                while (true)
-                {
-                    var matchIdx = lineText.IndexOf(query, searchFrom, StringComparison.OrdinalIgnoreCase);
-                    if (matchIdx < 0)
-                    {
-                        break;
-                    }
-
-                    results.Add(lineNumber);
-                    searchFrom = matchIdx + query.Length;
-                }
+                CountLineMatches(lineBytes, query, asciiQuery, lineNumber, results);
 
                 lineNumber++;
                 pos += nl + 1;
             }
 
-            if (bufCount % 4 == 0 || results.Count > lastReportedCount)
+            if (bufCount % 4 == 0)
             {
                 long[]? snapshot = results.Count > lastReportedCount ? results.ToArray() : null;
                 progress.Report((bytesProcessed * 100.0 / fileLength, snapshot));
@@ -1409,22 +1403,73 @@ public partial class MainWindow : Window
 
         if (partialLen > 0 && !ct.IsCancellationRequested)
         {
-            var lineText = Encoding.UTF8.GetString(partialLine, 0, partialLen);
-            var searchFrom = 0;
-            while (true)
-            {
-                var matchIdx = lineText.IndexOf(query, searchFrom, StringComparison.OrdinalIgnoreCase);
-                if (matchIdx < 0)
-                {
-                    break;
-                }
-
-                results.Add(lineNumber);
-                searchFrom = matchIdx + query.Length;
-            }
+            CountLineMatches(partialLine.AsSpan(0, partialLen), query, asciiQuery, lineNumber, results);
         }
 
         progress.Report((100.0, null));
+    }
+
+    private static void CountLineMatches(
+        ReadOnlySpan<byte> lineBytes, string query, byte[]? asciiQuery, long lineNumber, List<long> results)
+    {
+        if (asciiQuery != null)
+        {
+            var from = 0;
+            while (true)
+            {
+                var idx = IndexOfIgnoreCaseAscii(lineBytes, asciiQuery, from);
+                if (idx < 0) break;
+                results.Add(lineNumber);
+                from = idx + asciiQuery.Length;
+            }
+        }
+        else
+        {
+            var maxChars = Encoding.UTF8.GetMaxCharCount(lineBytes.Length);
+            var charBuf = ArrayPool<char>.Shared.Rent(maxChars);
+            try
+            {
+                var charCount = Encoding.UTF8.GetChars(lineBytes, charBuf);
+                var lineChars = charBuf.AsSpan(0, charCount);
+                var querySpan = query.AsSpan();
+                var from = 0;
+                while (true)
+                {
+                    var idx = lineChars[from..].IndexOf(querySpan, StringComparison.OrdinalIgnoreCase);
+                    if (idx < 0) break;
+                    results.Add(lineNumber);
+                    from += idx + query.Length;
+                }
+            }
+            finally
+            {
+                ArrayPool<char>.Shared.Return(charBuf);
+            }
+        }
+    }
+
+    private static bool IsAsciiString(string s)
+    {
+        foreach (var c in s)
+            if (c > 127) return false;
+        return true;
+    }
+
+    private static int IndexOfIgnoreCaseAscii(ReadOnlySpan<byte> text, ReadOnlySpan<byte> pattern, int from)
+    {
+        var haystack = text[from..];
+        for (var i = 0; i <= haystack.Length - pattern.Length; i++)
+        {
+            var match = true;
+            for (var j = 0; j < pattern.Length; j++)
+            {
+                var b = haystack[i + j];
+                if ((uint)(b - 'A') <= 'Z' - 'A') b |= 0x20; // ASCII uppercase → lowercase
+                if (b != pattern[j]) { match = false; break; }
+            }
+            if (match) return from + i;
+        }
+        return -1;
     }
 
     private void ExitFilterMode()
