@@ -1,14 +1,12 @@
 # Popis
-- Na začátku sestavím index počátku každého řádku
+- Na začátku sestavím index počátku každého řádku.
+- Poté udržuji v paměti (proměnná Lines) aktuální (tedy zobrazené) řádky +- buffer.
+- Pomocí tohoto indexu pak čtu ze souboru na disku řádky dle potřeby.
+- Předpokládá se UTF-8 kódování.
 
-# TODO
-- scrollovani moc nefunguje.. kdyz scrolluju rucne, po chvili to prestane. Kdyz pak scrollnu druhym smerem, jakoby po pokracuje v tom, v cem melo puvodne
-- virtual scroll bar funguje asi celkem dobre ale je zasekanej
-- 
+# Možnosti vylepšení
+- Index budovat asynchronně, tj. okamžitě otevřít soubor, kde uživatel může začít pracovat s částí občasu, a mezitím dokončit indexaci.
+- Budování indexu má nejspíše prostor na optimalizaci. 
+  - Pouze načíst soubor (50 mil. řádků) trvá 8 sekund, budovat současně index pak 18 sekund.
+- Vylepšit/změnit animaci Home/End u velkých souborů.
 
-# Rozhodnutí
-
-- Předpokládá se UTF-8 kódování
-- Řádky se newrapují
-- Každý řádek ze souboru je jeden TextBlock komponent. Lépe se pak ve vyhledávání zvýrazňují
-- Soubor se otevře okamžitě (stream) a ihned se začne v pozadí indexovat pro rychlý random access.

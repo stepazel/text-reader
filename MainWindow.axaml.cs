@@ -28,9 +28,15 @@ public partial class MainWindow : Window
     private const int WindowSize = 500;
     private const int ScrollBuffer = 100;
 
-    private enum FileSource { FileSystem, Url, Generated }
+    private enum FileSource
+    {
+        FileSystem,
+        Url,
+        Generated
+    }
 
     private long[] _offsets = [];
+    private int _lineCount;
     private long _fileLength;
     private SafeFileHandle? _fileHandle;
     private string? _tempFile;
@@ -48,7 +54,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _searchDebounceToken;
     private int _searchGeneration;
     private LineItem? _lastHighlightedItem;
-    
+
     private CancellationTokenSource? _scrollCts;
     private bool _isDraggingVirtualScroll;
     private double _charWidth;
@@ -57,7 +63,7 @@ public partial class MainWindow : Window
     private long[] _filterDocLines = [];
 
     // In filter mode the "index space" is _filterDocLines; in normal mode it's _offsets.
-    private long IndexLength => _filterMode ? _filterDocLines.Length : _offsets.Length;
+    private long IndexLength => _filterMode ? _filterDocLines.Length : _lineCount;
     private string LoadLineAt(long index) => _filterMode ? ReadLine((int)_filterDocLines[index]) : ReadLine((int)index);
     private long DocLineAt(long index) => _filterMode ? _filterDocLines[index] : index;
 
@@ -70,36 +76,51 @@ public partial class MainWindow : Window
         Opened += (_, _) => Scroller.Focus();
         NavigateToLineBox.KeyDown += (_, e) =>
         {
-            if (e.Key != Key.Enter) return;
-            if (long.TryParse(NavigateToLineBox.Text, out var line) && line >= 1 && _offsets.Length > 0)
+            if (e.Key != Key.Enter)
+            {
+                return;
+            }
+
+            if (long.TryParse(NavigateToLineBox.Text, out var line) && line >= 1 && _lineCount > 0)
             {
                 ExitFilterMode();
-                NavigateTo(Math.Min(line - 1, _offsets.Length - 1));
+                NavigateTo(Math.Min(line - 1, _lineCount - 1));
             }
+
             NavigateToLineBox.Text = "";
             Scroller.Focus();
             e.Handled = true;
         };
-        
+
         Scroller.AddHandler(
             KeyDownEvent,
             (_, e) => OnKeyDown(e),
             RoutingStrategies.Tunnel);
+
         VirtualScroll.AddHandler(Thumb.DragStartedEvent, (_, _) =>
         {
-            if (IndexLength <= WindowSize) return;
+            if (IndexLength <= WindowSize)
+            {
+                return;
+            }
+
             _isDraggingVirtualScroll = true;
             _debounceToken?.Cancel();
             _scrollCts?.Cancel();
         }, RoutingStrategies.Bubble);
         VirtualScroll.AddHandler(Thumb.DragCompletedEvent, (_, _) =>
         {
-            if (!_isDraggingVirtualScroll) return;
+            if (!_isDraggingVirtualScroll)
+            {
+                return;
+            }
+
             _isDraggingVirtualScroll = false;
             ScrollHint.IsVisible = false;
             NavigateTo((long)VirtualScroll.Value);
         }, RoutingStrategies.Bubble);
-        this.AddHandler(KeyDownEvent, (_, e) =>
+
+        AddHandler(KeyDownEvent, (_, e) =>
         {
             if (e.Key != Key.F)
             {
@@ -130,7 +151,7 @@ public partial class MainWindow : Window
             }
             catch
             {
-                /* ignore */
+                // ignoruji
             }
         };
         DataContext = this;
@@ -157,7 +178,7 @@ public partial class MainWindow : Window
             }
             catch
             {
-                /* ignore */
+                // ignoruji
             }
         }
 
@@ -209,7 +230,7 @@ public partial class MainWindow : Window
 
             var lineHeight = Scroller.Extent.Height / Lines.Count;
             var pageLines = (int)(Scroller.Viewport.Height / lineHeight);
-            VirtualScroll.Maximum = Math.Max(0, _offsets.Length - pageLines);
+            VirtualScroll.Maximum = Math.Max(0, _lineCount - pageLines);
             VirtualScroll.SmallChange = 1;
             VirtualScroll.LargeChange = pageLines;
             VirtualScroll.ViewportSize = pageLines;
@@ -357,7 +378,11 @@ public partial class MainWindow : Window
         cancelBtn.Click += (_, _) => dialog.Close();
         lineCountBox.KeyDown += (_, ke) =>
         {
-            if (ke.Key != Key.Enter) return;
+            if (ke.Key != Key.Enter)
+            {
+                return;
+            }
+
             if (int.TryParse(lineCountBox.Text, out var n) && n > 0)
             {
                 lineCount = n;
@@ -366,7 +391,10 @@ public partial class MainWindow : Window
         };
 
         await dialog.ShowDialog(this);
-        if (lineCount is not { } count) return;
+        if (lineCount is not { } count)
+        {
+            return;
+        }
 
         var progressBar = new ProgressBar
             { Minimum = 0, Maximum = 100, Value = 0, Width = 260, Margin = new Thickness(16, 16, 16, 8) };
@@ -397,7 +425,15 @@ public partial class MainWindow : Window
         catch
         {
             progressWindow.Close();
-            try { File.Delete(tempPath); } catch { /* ignore */ }
+            try
+            {
+                File.Delete(tempPath);
+            }
+            catch
+            {
+                // ignoruji
+            }
+
             return;
         }
 
@@ -407,7 +443,10 @@ public partial class MainWindow : Window
 
     private async void OnSaveClicked(object? sender, RoutedEventArgs e)
     {
-        if (_filePath == null) return;
+        if (_filePath == null)
+        {
+            return;
+        }
 
         var suggestedName = _fileSource == FileSource.Generated ? "generated.txt" : "downloaded.txt";
 
@@ -418,7 +457,10 @@ public partial class MainWindow : Window
             FileTypeChoices = [new FilePickerFileType("Textový soubor") { Patterns = ["*.txt"] }],
         });
 
-        if (dest?.TryGetLocalPath() is not { } destPath) return;
+        if (dest?.TryGetLocalPath() is not { } destPath)
+        {
+            return;
+        }
 
         try
         {
@@ -439,7 +481,11 @@ public partial class MainWindow : Window
                     Spacing = 12,
                     Children =
                     {
-                        new TextBlock { Text = $"Nepodařilo se uložit soubor: {ex.Message}", TextWrapping = Avalonia.Media.TextWrapping.Wrap },
+                        new TextBlock
+                        {
+                            Text = $"Nepodařilo se uložit soubor: {ex.Message}",
+                            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+                        },
                         new Button { Content = "OK", HorizontalAlignment = HorizontalAlignment.Right },
                     },
                 },
@@ -475,14 +521,22 @@ public partial class MainWindow : Window
             var wordCount = rng.Next(5, 16);
             for (var w = 0; w < wordCount; w++)
             {
-                if (w > 0) writer.Write(' ');
+                if (w > 0)
+                {
+                    writer.Write(' ');
+                }
+
                 writer.Write(LoremWords[rng.Next(LoremWords.Length)]);
             }
+
             writer.WriteLine();
 
             if (i % 10000 == 0)
+            {
                 progress.Report(i * 100.0 / lineCount);
+            }
         }
+
         progress.Report(100);
     }
 
@@ -585,7 +639,9 @@ public partial class MainWindow : Window
             await Task.WhenAll(Task.Delay(60, token), scrollbarTask);
             await AnimateOpacity(Scroller, 0.0, 1.0, 200, token);
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+        }
         finally
         {
             Scroller.Opacity = 1.0;
@@ -604,12 +660,14 @@ public partial class MainWindow : Window
             _suppressVirtualScroll = false;
             await Task.Delay(16, token);
         }
+
         _suppressVirtualScroll = true;
         VirtualScroll.Value = to;
         _suppressVirtualScroll = false;
     }
 
-    private static async Task AnimateOpacity(Control control, double from, double to, int durationMs, CancellationToken token)
+    private static async Task AnimateOpacity(Control control, double from, double to, int durationMs,
+        CancellationToken token)
     {
         var sw = Stopwatch.StartNew();
         var easing = new CubicEaseOut();
@@ -619,6 +677,7 @@ public partial class MainWindow : Window
             control.Opacity = from + (to - from) * easing.Ease(t);
             await Task.Delay(16, token);
         }
+
         control.Opacity = to;
     }
 
@@ -632,6 +691,7 @@ public partial class MainWindow : Window
 
         var lineHeight = Scroller.Extent.Height / Lines.Count;
 
+        // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
         switch (e.Key)
         {
             case Key.Down:
@@ -667,7 +727,7 @@ public partial class MainWindow : Window
                 break;
         }
     }
-    
+
     private void SmoothScrollTo(ScrollViewer sv, double targetY)
     {
         _scrollCts?.Cancel();
@@ -676,7 +736,10 @@ public partial class MainWindow : Window
 
         var startY = sv.Offset.Y;
         var endY = Math.Clamp(targetY, 0, sv.ScrollBarMaximum.Y);
-        if (Math.Abs(endY - startY) < 1) return;
+        if (Math.Abs(endY - startY) < 1)
+        {
+            return;
+        }
 
         var sw = Stopwatch.StartNew();
         const double durationMs = 350;
@@ -718,7 +781,10 @@ public partial class MainWindow : Window
             _lastHighlightedItem = null;
         }
 
-        if (_currentResultIndex < 0 || _searchResults.Length == 0) return;
+        if (_currentResultIndex < 0 || _searchResults.Length == 0)
+        {
+            return;
+        }
 
         var docLine = _searchResults[_currentResultIndex];
 
@@ -726,12 +792,20 @@ public partial class MainWindow : Window
         if (_filterMode)
         {
             var fi = Array.BinarySearch(_filterDocLines, docLine);
-            if (fi < 0 || fi < _firstLoadedLine || fi >= _firstLoadedLine + Lines.Count) return;
+            if (fi < 0 || fi < _firstLoadedLine || fi >= _firstLoadedLine + Lines.Count)
+            {
+                return;
+            }
+
             bufferPos = fi - _firstLoadedLine;
         }
         else
         {
-            if (docLine < _firstLoadedLine || docLine >= _firstLoadedLine + Lines.Count) return;
+            if (docLine < _firstLoadedLine || docLine >= _firstLoadedLine + Lines.Count)
+            {
+                return;
+            }
+
             bufferPos = docLine - _firstLoadedLine;
         }
 
@@ -763,7 +837,10 @@ public partial class MainWindow : Window
     private void LoadDragView(long firstLine)
     {
         firstLine = Math.Clamp(firstLine, 0, Math.Max(0, IndexLength - 1));
-        if (firstLine == _firstLoadedLine && Lines.Count > 0) return;
+        if (firstLine == _firstLoadedLine && Lines.Count > 0)
+        {
+            return;
+        }
 
         _firstLoadedLine = firstLine;
         _lastHighlightedItem = null;
@@ -845,7 +922,10 @@ public partial class MainWindow : Window
             Dispatcher.UIThread.Post(() =>
             {
                 if (removedFromTop)
+                {
                     sv.Offset = sv.Offset.WithY(sv.Offset.Y - changeSize * lineHeight);
+                }
+
                 _adjustingScroll = false;
             }, DispatcherPriority.Loaded);
             return;
@@ -880,11 +960,18 @@ public partial class MainWindow : Window
 
     private async void OnVirtualScrollChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
-        if (_suppressVirtualScroll) return;
+        if (_suppressVirtualScroll)
+        {
+            return;
+        }
 
         if (IndexLength > 0 && IndexLength <= WindowSize)
         {
-            if (Lines.Count == 0 || Scroller.Extent.Height == 0) return;
+            if (Lines.Count == 0 || Scroller.Extent.Height == 0)
+            {
+                return;
+            }
+
             var lineHeight = Scroller.Extent.Height / Lines.Count;
             _adjustingScroll = true;
             Scroller.Offset = Scroller.Offset.WithY(e.NewValue * lineHeight);
@@ -924,13 +1011,13 @@ public partial class MainWindow : Window
 
     private string ReadLine(int lineIndex)
     {
-        if (lineIndex < 0 || lineIndex >= _offsets.Length || _fileHandle is null)
+        if (lineIndex < 0 || lineIndex >= _lineCount || _fileHandle is null)
         {
             return string.Empty;
         }
 
         var start = _offsets[lineIndex];
-        var end = lineIndex + 1 < _offsets.Length ? _offsets[lineIndex + 1] : _fileLength;
+        var end = lineIndex + 1 < _lineCount ? _offsets[lineIndex + 1] : _fileLength;
 
         var bytes = new byte[end - start];
         RandomAccess.Read(_fileHandle, bytes, start);
@@ -945,7 +1032,7 @@ public partial class MainWindow : Window
         var offsets = new long[capacity];
         var count = 1;
 
-        const int bufSize = 1 << 16;//1 << 20;
+        const int bufSize = 1 << 16;;
         var bufA = new byte[bufSize];
         var bufB = new byte[bufSize];
 
@@ -998,7 +1085,6 @@ public partial class MainWindow : Window
         return offsets[..count];
     }
 
-    // --- Search ---
 
     private async void OnSearchTextChanged(object? sender, TextChangedEventArgs e)
     {
@@ -1041,7 +1127,10 @@ public partial class MainWindow : Window
         if (_filterMode)
         {
             var fi = Array.BinarySearch(_filterDocLines, docLine);
-            if (fi >= 0) NavigateTo(fi, ComputeMatchScrollX(docLine));
+            if (fi >= 0)
+            {
+                NavigateTo(fi, ComputeMatchScrollX(docLine));
+            }
         }
         else
         {
@@ -1051,7 +1140,10 @@ public partial class MainWindow : Window
 
     private double ComputeMatchScrollX(long docLine)
     {
-        if (string.IsNullOrEmpty(_activeQuery)) return 0;
+        if (string.IsNullOrEmpty(_activeQuery))
+        {
+            return 0;
+        }
 
         var occIdx = 0;
         for (var i = _currentResultIndex - 1; i >= 0 && _searchResults[i] == docLine; i--)
@@ -1063,7 +1155,11 @@ public partial class MainWindow : Window
         while (true)
         {
             var idx = lineText.IndexOf(_activeQuery, charPos, StringComparison.OrdinalIgnoreCase);
-            if (idx < 0) return 0;
+            if (idx < 0)
+            {
+                return 0;
+            }
+
             if (found == occIdx)
             {
                 var cw = GetCharWidth();
@@ -1072,6 +1168,7 @@ public partial class MainWindow : Window
                 var centerX = matchStartX - (Scroller.Viewport.Width - matchWidth) / 2;
                 return Math.Max(0, centerX);
             }
+
             found++;
             charPos = idx + _activeQuery.Length;
         }
@@ -1079,7 +1176,11 @@ public partial class MainWindow : Window
 
     private double GetCharWidth()
     {
-        if (_charWidth > 0) return _charWidth;
+        if (_charWidth > 0)
+        {
+            return _charWidth;
+        }
+
         var ft = new FormattedText(
             "X",
             System.Globalization.CultureInfo.InvariantCulture,
@@ -1107,19 +1208,24 @@ public partial class MainWindow : Window
             _filterMode = false;
             _filterDocLines = [];
             FilterButton.Content = "Filtrovat";
-            // Restore full view immediately so user isn't stuck in filter while search runs.
+            
             var restoreDoc = _currentResultIndex >= 0 && _searchResults.Length > 0
-                ? _searchResults[_currentResultIndex] : 0L;
+                ? _searchResults[_currentResultIndex]
+                : 0L;
             _firstLoadedLine = 0;
             LoadWindow(0);
             Scroller.Offset = Vector.Zero;
             Dispatcher.UIThread.Post(() =>
             {
-                if (Lines.Count == 0 || Scroller.Extent.Height == 0) return;
+                if (Lines.Count == 0 || Scroller.Extent.Height == 0)
+                {
+                    return;
+                }
+
                 var lh = Scroller.Extent.Height / Lines.Count;
                 var pl = (int)(Scroller.Viewport.Height / lh);
                 _suppressVirtualScroll = true;
-                VirtualScroll.Maximum = Math.Max(0, _offsets.Length - pl);
+                VirtualScroll.Maximum = Math.Max(0, _lineCount - pl);
                 VirtualScroll.ViewportSize = pl;
                 VirtualScroll.Value = restoreDoc;
                 _suppressVirtualScroll = false;
@@ -1154,9 +1260,17 @@ public partial class MainWindow : Window
 
         var progress = new Progress<(double pct, long[]? snapshot)>(state =>
         {
-            if (_searchGeneration != generation) return;
+            if (_searchGeneration != generation)
+            {
+                return;
+            }
+
             SearchProgress.Value = state.pct;
-            if (state.snapshot == null) return;
+            if (state.snapshot == null)
+            {
+                return;
+            }
+
             _searchResults = state.snapshot;
             SearchStatus.Text = _currentResultIndex >= 0
                 ? $"{_currentResultIndex + 1} z {state.snapshot.Length} ..."
@@ -1172,7 +1286,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (ct.IsCancellationRequested || _searchGeneration != generation) return;
+        if (ct.IsCancellationRequested || _searchGeneration != generation)
+        {
+            return;
+        }
 
         _searchResults = results.ToArray();
         SearchProgress.IsVisible = false;
@@ -1313,20 +1430,29 @@ public partial class MainWindow : Window
 
     private void ExitFilterMode()
     {
-        if (!_filterMode) return;
+        if (!_filterMode)
+        {
+            return;
+        }
+
         var docLine = _currentResultIndex >= 0 && _searchResults.Length > 0
-            ? _searchResults[_currentResultIndex] : 0L;
+            ? _searchResults[_currentResultIndex]
+            : 0L;
         _filterMode = false;
         _filterDocLines = [];
         FilterButton.Content = "Filtrovat";
         NavigateTo(docLine);
         Dispatcher.UIThread.Post(() =>
         {
-            if (Lines.Count == 0 || Scroller.Extent.Height == 0) return;
+            if (Lines.Count == 0 || Scroller.Extent.Height == 0)
+            {
+                return;
+            }
+
             var lh = Scroller.Extent.Height / Lines.Count;
             var pl = (int)(Scroller.Viewport.Height / lh);
             _suppressVirtualScroll = true;
-            VirtualScroll.Maximum = Math.Max(0, _offsets.Length - pl);
+            VirtualScroll.Maximum = Math.Max(0, _lineCount - pl);
             VirtualScroll.SmallChange = 1;
             VirtualScroll.LargeChange = pl;
             VirtualScroll.ViewportSize = pl;
@@ -1343,7 +1469,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_searchResults.Length == 0 || SearchProgress.IsVisible) return;
+        if (_searchResults.Length == 0 || SearchProgress.IsVisible)
+        {
+            return;
+        }
 
         _filterDocLines = _searchResults.Distinct().ToArray();
         _filterMode = true;
@@ -1356,7 +1485,11 @@ public partial class MainWindow : Window
         NavigateTo(filterIdx);
         Dispatcher.UIThread.Post(() =>
         {
-            if (Lines.Count == 0 || Scroller.Extent.Height == 0) return;
+            if (Lines.Count == 0 || Scroller.Extent.Height == 0)
+            {
+                return;
+            }
+
             var lh = Scroller.Extent.Height / Lines.Count;
             var pl = (int)(Scroller.Viewport.Height / lh);
             _suppressVirtualScroll = true;
