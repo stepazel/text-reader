@@ -41,6 +41,8 @@
                 <TextBlock x:Name="SearchStatus" Text="" VerticalAlignment="Center"
                            MinWidth="80" TextAlignment="Center"/>
                 <Button Content="▶" Click="OnSearchNext"/>
+                <Button x:Name="FilterButton" Content="Filtrovat"
+                        IsVisible="False" Click="OnFilterToggled"/>
                 <TextBox x:Name="NavigateToLineBox"
                          PlaceholderText="Řádek…"
                          Width="90"

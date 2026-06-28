@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -52,6 +53,14 @@ public partial class MainWindow : Window
     private bool _isDraggingVirtualScroll;
     private double _charWidth;
 
+    private bool _filterMode;
+    private long[] _filterDocLines = [];
+
+    // In filter mode the "index space" is _filterDocLines; in normal mode it's _offsets.
+    private long IndexLength => _filterMode ? _filterDocLines.Length : _offsets.Length;
+    private string LoadLineAt(long index) => _filterMode ? ReadLine((int)_filterDocLines[index]) : ReadLine((int)index);
+    private long DocLineAt(long index) => _filterMode ? _filterDocLines[index] : index;
+
 
     public AvaloniaList<LineItem> Lines { get; } = [];
 
@@ -63,7 +72,10 @@ public partial class MainWindow : Window
         {
             if (e.Key != Key.Enter) return;
             if (long.TryParse(NavigateToLineBox.Text, out var line) && line >= 1 && _offsets.Length > 0)
+            {
+                ExitFilterMode();
                 NavigateTo(Math.Min(line - 1, _offsets.Length - 1));
+            }
             NavigateToLineBox.Text = "";
             Scroller.Focus();
             e.Handled = true;
@@ -75,7 +87,7 @@ public partial class MainWindow : Window
             RoutingStrategies.Tunnel);
         VirtualScroll.AddHandler(Thumb.DragStartedEvent, (_, _) =>
         {
-            if (_offsets.Length <= WindowSize) return;
+            if (IndexLength <= WindowSize) return;
             _isDraggingVirtualScroll = true;
             _debounceToken?.Cancel();
             _scrollCts?.Cancel();
@@ -127,10 +139,14 @@ public partial class MainWindow : Window
     private async Task OpenFile(string path, FileSource source = FileSource.FileSystem)
     {
         _searchCts?.Cancel();
+        _filterMode = false;
+        _filterDocLines = [];
         _searchResults = [];
         _currentResultIndex = -1;
         SearchStatus.Text = "";
         SearchProgress.IsVisible = false;
+        FilterButton.IsVisible = false;
+        FilterButton.Content = "Filtrovat";
 
         _fileHandle?.Dispose();
         if (_tempFile != null)
@@ -533,7 +549,7 @@ public partial class MainWindow : Window
         }
 
         var lineHeight = Scroller.Extent.Height / Lines.Count;
-        docLine = Math.Clamp(docLine, 0, _offsets.Length - 1);
+        docLine = Math.Clamp(docLine, 0, IndexLength - 1);
         LoadWindow(Math.Max(0, docLine - WindowSize / 2));
 
         var lineInBuffer = docLine - _firstLoadedLine;
@@ -550,7 +566,7 @@ public partial class MainWindow : Window
 
     private async void GoTo(long docLine)
     {
-        docLine = Math.Clamp(docLine, 0, Math.Max(0, _offsets.Length - 1));
+        docLine = Math.Clamp(docLine, 0, Math.Max(0, IndexLength - 1));
         if (docLine >= _firstLoadedLine && docLine < _firstLoadedLine + Lines.Count)
         {
             SmoothScrollTo(Scroller, (docLine - _firstLoadedLine) * (Scroller.Extent.Height / Lines.Count));
@@ -639,7 +655,7 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.End:
-                GoTo(Math.Max(0, _offsets.Length - (int)(Scroller.Viewport.Height / lineHeight)));
+                GoTo(Math.Max(0, IndexLength - (int)(Scroller.Viewport.Height / lineHeight)));
                 e.Handled = true;
                 break;
             case Key.F3:
@@ -702,52 +718,64 @@ public partial class MainWindow : Window
             _lastHighlightedItem = null;
         }
 
-        if (_currentResultIndex < 0 || _searchResults.Length == 0)
-        {
-            return;
-        }
+        if (_currentResultIndex < 0 || _searchResults.Length == 0) return;
 
         var docLine = _searchResults[_currentResultIndex];
-        if (docLine < _firstLoadedLine || docLine >= _firstLoadedLine + Lines.Count)
+
+        long bufferPos;
+        if (_filterMode)
         {
-            return;
+            var fi = Array.BinarySearch(_filterDocLines, docLine);
+            if (fi < 0 || fi < _firstLoadedLine || fi >= _firstLoadedLine + Lines.Count) return;
+            bufferPos = fi - _firstLoadedLine;
+        }
+        else
+        {
+            if (docLine < _firstLoadedLine || docLine >= _firstLoadedLine + Lines.Count) return;
+            bufferPos = docLine - _firstLoadedLine;
         }
 
         var occIdx = 0;
         for (var i = _currentResultIndex - 1; i >= 0 && _searchResults[i] == docLine; i--)
             occIdx++;
 
-        _lastHighlightedItem = Lines[(int)(docLine - _firstLoadedLine)];
+        _lastHighlightedItem = Lines[(int)bufferPos];
         _lastHighlightedItem.CurrentOccurrenceIndex = occIdx;
     }
 
     private void LoadWindow(long firstLine)
     {
-        firstLine = Math.Clamp(firstLine, 0, Math.Max(0, _offsets.Length - WindowSize));
+        firstLine = Math.Clamp(firstLine, 0, Math.Max(0, IndexLength - WindowSize));
         _firstLoadedLine = firstLine;
         _lastHighlightedItem = null;
 
         Lines.Clear();
-        var count = (int)Math.Min(WindowSize, _offsets.Length - firstLine);
+        var count = (int)Math.Min(WindowSize, IndexLength - firstLine);
         for (var i = 0; i < count; i++)
-            Lines.Add(new LineItem(ReadLine((int)(firstLine + i)), _activeQuery, firstLine + i));
+        {
+            var idx = firstLine + i;
+            Lines.Add(new LineItem(LoadLineAt(idx), _activeQuery, DocLineAt(idx)));
+        }
 
         UpdateCurrentHighlight();
     }
 
     private void LoadDragView(long firstLine)
     {
-        firstLine = Math.Clamp(firstLine, 0, Math.Max(0, _offsets.Length - 1));
+        firstLine = Math.Clamp(firstLine, 0, Math.Max(0, IndexLength - 1));
         if (firstLine == _firstLoadedLine && Lines.Count > 0) return;
 
         _firstLoadedLine = firstLine;
         _lastHighlightedItem = null;
 
         var visibleCount = Math.Max(1, (int)VirtualScroll.ViewportSize) + 2;
-        var count = (int)Math.Min(visibleCount, _offsets.Length - firstLine);
+        var count = (int)Math.Min(visibleCount, IndexLength - firstLine);
         var items = new LineItem[count];
         for (var i = 0; i < count; i++)
-            items[i] = new LineItem(ReadLine((int)(firstLine + i)), _activeQuery, firstLine + i);
+        {
+            var idx = firstLine + i;
+            items[i] = new LineItem(LoadLineAt(idx), _activeQuery, DocLineAt(idx));
+        }
 
         _adjustingScroll = true;
         Lines.Clear();
@@ -789,7 +817,7 @@ public partial class MainWindow : Window
 
         if (lastLoaded - lastVisible <= ScrollBuffer)
         {
-            if (lastLoaded >= _offsets.Length - 1)
+            if (lastLoaded >= IndexLength - 1)
             {
                 return;
             }
@@ -797,7 +825,10 @@ public partial class MainWindow : Window
             const int changeSize = 100;
             var linesToAdd = new LineItem[changeSize];
             for (var i = 0; i < changeSize; i++)
-                linesToAdd[i] = new LineItem(ReadLine((int)(lastLoaded + 1 + i)), _activeQuery, lastLoaded + 1 + i);
+            {
+                var idx = lastLoaded + 1 + i;
+                linesToAdd[i] = new LineItem(LoadLineAt(idx), _activeQuery, DocLineAt(idx));
+            }
 
             _scrollCts?.Cancel();
             _adjustingScroll = true;
@@ -826,7 +857,10 @@ public partial class MainWindow : Window
             const int changeSize = 100;
             var linesToAdd = new LineItem[changeSize];
             for (var i = 0; i < changeSize; i++)
-                linesToAdd[i] = new LineItem(ReadLine((int)(_firstLoadedLine - changeSize + i)), _activeQuery, _firstLoadedLine - changeSize + i);
+            {
+                var idx = _firstLoadedLine - changeSize + i;
+                linesToAdd[i] = new LineItem(LoadLineAt(idx), _activeQuery, DocLineAt(idx));
+            }
 
             _scrollCts?.Cancel();
             _adjustingScroll = true;
@@ -848,7 +882,7 @@ public partial class MainWindow : Window
     {
         if (_suppressVirtualScroll) return;
 
-        if (_offsets.Length > 0 && _offsets.Length <= WindowSize)
+        if (IndexLength > 0 && IndexLength <= WindowSize)
         {
             if (Lines.Count == 0 || Scroller.Extent.Height == 0) return;
             var lineHeight = Scroller.Extent.Height / Lines.Count;
@@ -861,8 +895,10 @@ public partial class MainWindow : Window
         if (_isDraggingVirtualScroll)
         {
             var line = (long)e.NewValue;
-            var pct = _offsets.Length > 0 ? line * 100.0 / _offsets.Length : 0;
-            ScrollHintText.Text = $"Řádek {line + 1}  ({pct:0.0} %)";
+            var pct = IndexLength > 0 ? line * 100.0 / IndexLength : 0;
+            ScrollHintText.Text = _filterMode
+                ? $"Výsledek {line + 1} / {IndexLength}  (řádek {DocLineAt(Math.Min(line, IndexLength - 1)) + 1})"
+                : $"Řádek {line + 1}  ({pct:0.0} %)";
             var hintY = VirtualScroll.Maximum > 0
                 ? e.NewValue / VirtualScroll.Maximum * Math.Max(0, VirtualScroll.Bounds.Height - 40)
                 : 0;
@@ -1002,7 +1038,15 @@ public partial class MainWindow : Window
         var searching = SearchProgress.IsVisible ? " ..." : "";
         SearchStatus.Text = $"{_currentResultIndex + 1} z {_searchResults.Length}{searching}";
         var docLine = _searchResults[_currentResultIndex];
-        NavigateTo(docLine, ComputeMatchScrollX(docLine));
+        if (_filterMode)
+        {
+            var fi = Array.BinarySearch(_filterDocLines, docLine);
+            if (fi >= 0) NavigateTo(fi, ComputeMatchScrollX(docLine));
+        }
+        else
+        {
+            NavigateTo(docLine, ComputeMatchScrollX(docLine));
+        }
     }
 
     private double ComputeMatchScrollX(long docLine)
@@ -1057,8 +1101,34 @@ public partial class MainWindow : Window
     private async Task StartSearchAsync(string query)
     {
         _searchCts?.Cancel();
+
+        if (_filterMode)
+        {
+            _filterMode = false;
+            _filterDocLines = [];
+            FilterButton.Content = "Filtrovat";
+            // Restore full view immediately so user isn't stuck in filter while search runs.
+            var restoreDoc = _currentResultIndex >= 0 && _searchResults.Length > 0
+                ? _searchResults[_currentResultIndex] : 0L;
+            _firstLoadedLine = 0;
+            LoadWindow(0);
+            Scroller.Offset = Vector.Zero;
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (Lines.Count == 0 || Scroller.Extent.Height == 0) return;
+                var lh = Scroller.Extent.Height / Lines.Count;
+                var pl = (int)(Scroller.Viewport.Height / lh);
+                _suppressVirtualScroll = true;
+                VirtualScroll.Maximum = Math.Max(0, _offsets.Length - pl);
+                VirtualScroll.ViewportSize = pl;
+                VirtualScroll.Value = restoreDoc;
+                _suppressVirtualScroll = false;
+            }, DispatcherPriority.Loaded);
+        }
+
         _searchResults = [];
         _currentResultIndex = -1;
+        FilterButton.IsVisible = false;
 
         if (string.IsNullOrWhiteSpace(query) || _filePath == null)
         {
@@ -1106,6 +1176,7 @@ public partial class MainWindow : Window
 
         _searchResults = results.ToArray();
         SearchProgress.IsVisible = false;
+        FilterButton.IsVisible = _searchResults.Length > 0;
 
         if (_searchResults.Length == 0)
         {
@@ -1238,5 +1309,63 @@ public partial class MainWindow : Window
         }
 
         progress.Report((100.0, null));
+    }
+
+    private void ExitFilterMode()
+    {
+        if (!_filterMode) return;
+        var docLine = _currentResultIndex >= 0 && _searchResults.Length > 0
+            ? _searchResults[_currentResultIndex] : 0L;
+        _filterMode = false;
+        _filterDocLines = [];
+        FilterButton.Content = "Filtrovat";
+        NavigateTo(docLine);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (Lines.Count == 0 || Scroller.Extent.Height == 0) return;
+            var lh = Scroller.Extent.Height / Lines.Count;
+            var pl = (int)(Scroller.Viewport.Height / lh);
+            _suppressVirtualScroll = true;
+            VirtualScroll.Maximum = Math.Max(0, _offsets.Length - pl);
+            VirtualScroll.SmallChange = 1;
+            VirtualScroll.LargeChange = pl;
+            VirtualScroll.ViewportSize = pl;
+            VirtualScroll.Value = docLine;
+            _suppressVirtualScroll = false;
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void OnFilterToggled(object? sender, RoutedEventArgs e)
+    {
+        if (_filterMode)
+        {
+            ExitFilterMode();
+            return;
+        }
+
+        if (_searchResults.Length == 0 || SearchProgress.IsVisible) return;
+
+        _filterDocLines = _searchResults.Distinct().ToArray();
+        _filterMode = true;
+        FilterButton.Content = "Vše";
+
+        var filterIdx = _currentResultIndex >= 0
+            ? Math.Max(0L, Array.BinarySearch(_filterDocLines, _searchResults[_currentResultIndex]))
+            : 0L;
+
+        NavigateTo(filterIdx);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (Lines.Count == 0 || Scroller.Extent.Height == 0) return;
+            var lh = Scroller.Extent.Height / Lines.Count;
+            var pl = (int)(Scroller.Viewport.Height / lh);
+            _suppressVirtualScroll = true;
+            VirtualScroll.Maximum = Math.Max(0, _filterDocLines.Length - pl);
+            VirtualScroll.SmallChange = 1;
+            VirtualScroll.LargeChange = pl;
+            VirtualScroll.ViewportSize = pl;
+            VirtualScroll.Value = filterIdx;
+            _suppressVirtualScroll = false;
+        }, DispatcherPriority.Loaded);
     }
 }
