@@ -63,7 +63,6 @@ public partial class MainWindow : Window
     private bool _filterMode;
     private long[] _filterDocLines = [];
 
-    // In filter mode the "index space" is _filterDocLines; in normal mode it's _offsets.
     private long IndexLength => _filterMode ? _filterDocLines.Length : _lineCount;
     private string LoadLineAt(long index) => _filterMode ? ReadLine((int)_filterDocLines[index]) : ReadLine((int)index);
     private long DocLineAt(long index) => _filterMode ? _filterDocLines[index] : index;
@@ -518,8 +517,6 @@ public partial class MainWindow : Window
 
         for (var i = 1; i <= lineCount; i++)
         {
-            writer.Write(i);
-            writer.Write(": ");
             var wordCount = rng.Next(5, 16);
             for (var w = 0; w < wordCount; w++)
             {
@@ -604,7 +601,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        var lineHeight = Scroller.Extent.Height / Lines.Count;
         docLine = Math.Clamp(docLine, 0, IndexLength - 1);
         LoadWindow(Math.Max(0, docLine - WindowSize / 2));
 
@@ -612,7 +608,13 @@ public partial class MainWindow : Window
         _adjustingScroll = true;
         Dispatcher.UIThread.Post(() =>
         {
-            Scroller.Offset = new Vector(targetX, lineInBuffer * lineHeight);
+            if (Lines.Count > 0)
+            {
+                // Recompute lineHeight after LoadWindow so the layout is up to date.
+                // Subtract one line so the match isn't flush against the top of the viewport.
+                var lineHeight = Scroller.Extent.Height / Lines.Count;
+                Scroller.Offset = new Vector(targetX, Math.Max(0, (lineInBuffer - 1) * lineHeight));
+            }
             _adjustingScroll = false;
             _suppressVirtualScroll = true;
             VirtualScroll.Value = docLine;

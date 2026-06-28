@@ -17,4 +17,5 @@
 - Drtivá většina kódu byla napsaná AI.
   - Důvodem je hlavně skutečnost, že je to throwaway aplikace
 - Aplikace tedy není považována za production ready a kód sám o sobě má hodně nedostatků (nepřehlednost jednoho velkého souboru, míchání UI kódu a logiky čtení souboru, ...)
+- Na vyřešení problému by zcela jistě postačilo i méně řádků kódu
 
