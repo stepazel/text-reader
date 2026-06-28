@@ -35,7 +35,7 @@ public partial class MainWindow : Window
         Generated
     }
 
-    private long[] _offsets = [];
+    private List<long> _offsets = [];
     private int _lineCount;
     private long _fileLength;
     private SafeFileHandle? _fileHandle;
@@ -208,6 +208,7 @@ public partial class MainWindow : Window
 
         var stopwatch = Stopwatch.StartNew();
         _offsets = await Task.Run(() => BuildLineOffsets(path, progress));
+        _lineCount = _offsets.Count;
         Console.WriteLine($"Loaded file in {stopwatch.ElapsedMilliseconds}ms");
 
         progressWindow.Close();
@@ -1025,14 +1026,12 @@ public partial class MainWindow : Window
         return Encoding.UTF8.GetString(bytes).TrimEnd('\r', '\n');
     }
 
-    private static long[] BuildLineOffsets(string path, IProgress<double>? progress = null)
+    private static List<long> BuildLineOffsets(string path, IProgress<double>? progress = null)
     {
         var fileLength = new FileInfo(path).Length;
-        var capacity = (int)Math.Min(fileLength / 40 + 1, int.MaxValue);
-        var offsets = new long[capacity];
-        var count = 1;
+        var offsets = new List<long> ();
 
-        const int bufSize = 1 << 16;;
+        const int bufSize = 1 << 16;
         var bufA = new byte[bufSize];
         var bufB = new byte[bufSize];
 
@@ -1067,7 +1066,7 @@ public partial class MainWindow : Window
                 }
 
                 idx += found;
-                offsets[count++] = position + idx + 1;
+                offsets.Add(position + idx + 1);
                 idx++;
             }
 
@@ -1082,7 +1081,7 @@ public partial class MainWindow : Window
         }
 
         progress?.Report(100);
-        return offsets[..count];
+        return offsets;
     }
 
 

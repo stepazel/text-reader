@@ -8,5 +8,6 @@
 - Index budovat asynchronně, tj. okamžitě otevřít soubor, kde uživatel může začít pracovat s částí občasu, a mezitím dokončit indexaci.
 - Budování indexu má nejspíše prostor na optimalizaci. 
   - Pouze načíst soubor (50 mil. řádků) trvá 8 sekund, budovat současně index pak 18 sekund.
+- Index nemusí obsahovat každý řádek, ale může být řídký a obsahovat třeba každý tisícatý. 
 - Vylepšit/změnit animaci Home/End u velkých souborů.
 
