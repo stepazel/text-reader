@@ -1032,7 +1032,7 @@ public partial class MainWindow : Window
     private static List<long> BuildLineOffsets(string path, IProgress<double>? progress = null)
     {
         var fileLength = new FileInfo(path).Length;
-        var offsets = new List<long> ();
+        var offsets = new List<long> { 0 };
 
         const int bufSize = 1 << 16;
         var bufA = new byte[bufSize];
